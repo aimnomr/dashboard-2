@@ -35,9 +35,30 @@ void uplinkPoll() {
       Serial.println("[GCS] command too long, discarded");
     }
   }
+
+  /* A queued ping normally waits for a received packet, so it lands in the
+   * vehicle's listen window. But if nothing is being received — the vehicle is
+   * off, out of range, or on another channel — waiting forever would make a
+   * link test impossible in exactly the situation you most want to run one.
+   * Send it blind after a short delay instead. */
+  if (pingPending && (millis() - pingRequestedMs) > PING_BLIND_AFTER_MS) {
+    pingPending = false;
+    pingsSent++;
+    bool sent = radioTransmit(PING_TOKEN);
+    Serial.print("[GCS] PING sent blind (no packets to time against)");
+    Serial.println(sent ? "" : " - FAILED TO TRANSMIT");
+  }
 }
 
 void handleCommand(const char *line) {
+  if (strcmp(line, CMD_PING) == 0) {
+    pingPending     = true;
+    pingRequestedMs = millis();
+    Serial.println("[GCS] PING queued - watch the flight unit's OLED, "
+                   "its UL counter should reset");
+    return;
+  }
+
   if (strcmp(line, CMD_EJECT) == 0) {
     if (ejectConfirmed) {
       Serial.println("[GCS] EJECT already confirmed, ignoring");
@@ -63,6 +84,18 @@ void handleCommand(const char *line) {
  *  The vehicle's listen window has just opened.
  * ----------------------------------------------------------------------- */
 void uplinkOnPacketReceived() {
+  /* A queued ping goes first and only once. Same timing logic as eject: the
+   * vehicle's listen window has just opened. */
+  if (pingPending) {
+    pingPending = false;
+    pingsSent++;
+    bool sent = radioTransmit(PING_TOKEN);
+    Serial.print("[GCS] PING sent");
+    Serial.println(sent ? " - no acknowledgement exists, check the vehicle's screen"
+                        : " FAILED TO TRANSMIT");
+    return;   /* one transmission per window; eject retries on the next packet */
+  }
+
   if (!ejectPending || ejectConfirmed) return;
 
   /* Confirmation first: the packet we just received may already carry it, in
@@ -88,7 +121,7 @@ void uplinkOnPacketReceived() {
   }
 
   ejectAttempts++;
-  bool sent = radioTransmitEject();
+  bool sent = radioTransmit(EJECT_TOKEN);
 
   Serial.print("[GCS] EJECT attempt ");
   Serial.print(ejectAttempts);

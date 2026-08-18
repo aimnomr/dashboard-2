@@ -49,22 +49,36 @@ void displayUpdate() {
 
   char l1[24], l2[24], l3[24], l4[24];
 
-  snprintf(l1, sizeof(l1), "RX:%lu  FGN:%lu",
-           (unsigned long)packetsOurs, (unsigned long)packetsForeign);
+  /* Packet age first. A ground station that has gone deaf looks identical to one
+   * watching a quiet vehicle, and the difference matters most when it is worst. */
+  if (lastPacketMs == 0) {
+    snprintf(l1, sizeof(l1), "RX:0  waiting...");
+  } else {
+    uint32_t age = (millis() - lastPacketMs) / 1000;
+    if (age > 999) age = 999;
+    snprintf(l1, sizeof(l1), "RX:%lu  %lus ago",
+             (unsigned long)packetsOurs, (unsigned long)age);
+  }
+
   snprintf(l2, sizeof(l2), "RSSI%4.0f SNR%5.1f", lastRssi, lastSnr);
 
   if (packetsBadCrc > 0) {
-    snprintf(l3, sizeof(l3), "BAD CRC: %lu", (unsigned long)packetsBadCrc);
+    snprintf(l3, sizeof(l3), "BADCRC%lu FGN%lu",
+             (unsigned long)packetsBadCrc, (unsigned long)packetsForeign);
   } else if (lastChute >= 1) {
     snprintf(l3, sizeof(l3), "CHUTE CMD x%d", lastChute);
   } else {
-    snprintf(l3, sizeof(l3), "CHUTE: armed");
+    snprintf(l3, sizeof(l3), "Chute armed  FGN%lu", (unsigned long)packetsForeign);
   }
 
   if (ejectConfirmed) {
     snprintf(l4, sizeof(l4), "EJECT CONFIRMED");
   } else if (ejectPending) {
     snprintf(l4, sizeof(l4), "EJECT %d/%d", ejectAttempts, EJECT_MAX_ATTEMPTS);
+  } else if (pingPending) {
+    snprintf(l4, sizeof(l4), "PING queued...");
+  } else if (pingsSent > 0) {
+    snprintf(l4, sizeof(l4), "%s  ping x%lu", TEAM_ID, (unsigned long)pingsSent);
   } else {
     snprintf(l4, sizeof(l4), "%s", TEAM_ID " listening");
   }

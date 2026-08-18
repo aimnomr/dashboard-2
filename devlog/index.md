@@ -22,3 +22,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 017 · GEN1 vs GEN2 structural comparison
 - 2026-08-18 · 018 · GEN3 plan, packet format, and link analysis
 - 2026-08-19 · 019 · Ground station GEN3 draft
+- 2026-08-19 · 020 · Flight unit GEN3, and the OLED as a pre-launch instrument

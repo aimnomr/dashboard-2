@@ -45,6 +45,16 @@
 #define EJECT_TOKEN       "EJECT"
 #define EJECT_MAX_ATTEMPTS 15
 
+/* PING proves the uplink works WITHOUT firing the parachute. Pre-launch, one
+ * person watches the sealed flight unit's OLED while another sends this; the
+ * vehicle's "UL <n>s" figure resets when it arrives.
+ *
+ * This ground station cannot tell whether the vehicle heard it — there is no
+ * acknowledgement. The evidence is on the vehicle's screen. */
+#define CMD_PING          "CMD:PING"
+#define PING_TOKEN        "PING"
+#define PING_BLIND_AFTER_MS 3000   /* if no packet arrives to time against, send anyway */
+
 /* ---- DISPLAY -------------------------------------------------------------- */
 #define ENABLE_OLED       1
 #define OLED_MIN_INTERVAL_MS 250   /* an I2C buffer push is slow; do not do it per packet */

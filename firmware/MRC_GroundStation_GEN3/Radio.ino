@@ -112,6 +112,7 @@ void radioPoll() {
   snprintf(out, sizeof(out), "%s,%.1f,%.1f", received.c_str(), lastRssi, lastSnr);
   Serial.println(out);
   packetsOurs++;
+  lastPacketMs = millis();
 
   /* Only now, and only for the retry loop, do we look inside. */
   if (packetCrcValid(received.c_str())) {
@@ -129,10 +130,11 @@ void radioPoll() {
   radio.startReceive();
 }
 
-/* Transmit the eject token. Blocks for roughly 41 ms at SF7, which is
- * negligible: the next telemetry packet is about a second away. */
-bool radioTransmitEject() {
-  int state = radio.transmit(EJECT_TOKEN);
+/* Transmit an uplink token. Blocks for roughly 41 ms at SF7, which is
+ * negligible: the next telemetry packet is about a second away. Receive mode is
+ * always restored, so a failed transmit cannot leave this unit deaf. */
+bool radioTransmit(const char *token) {
+  int state = radio.transmit(token);
   radio.startReceive();
   return state == RADIOLIB_ERR_NONE;
 }

@@ -39,10 +39,16 @@ float    lastRssi       = 0;
 float    lastSnr        = 0;
 int      lastChute      = -1;  /* -1 = not yet known */
 
+uint32_t lastPacketMs   = 0;   /* 0 = nothing received yet */
+
 /* uplink state — see Uplink.ino */
 bool     ejectPending   = false;
 bool     ejectConfirmed = false;
 uint8_t  ejectAttempts  = 0;
+
+bool     pingPending    = false;
+uint32_t pingRequestedMs = 0;
+uint32_t pingsSent      = 0;
 
 /* ========================================================================== */
 
