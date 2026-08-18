@@ -1,8 +1,14 @@
-import { PlaceholderPanel } from './components/Panel'
 import { StatusBar } from './components/StatusBar'
 import { useNow } from './hooks/useNow'
 import { useTelemetry } from './hooks/useTelemetry'
 import { AltitudePanel } from './panels/AltitudePanel'
+import { AttitudePanel } from './panels/AttitudePanel'
+import { EjectPanel } from './panels/EjectPanel'
+import { EnvironmentPanel } from './panels/EnvironmentPanel'
+import { GpsPanel } from './panels/GpsPanel'
+import { GroundTrackPanel } from './panels/GroundTrackPanel'
+import { RawFeedPanel } from './panels/RawFeedPanel'
+import { SpeedPanel } from './panels/SpeedPanel'
 
 export default function App() {
   const telemetry = useTelemetry()
@@ -16,13 +22,18 @@ export default function App() {
 
       <main className="grid">
         <AltitudePanel history={telemetry.history} latest={telemetry.latest} />
-        <PlaceholderPanel title="Ground track" area="track" />
-        <PlaceholderPanel title="Attitude" area="attitude" />
-        <PlaceholderPanel title="GPS" area="gps" />
-        <PlaceholderPanel title="Speed" area="speed" />
-        <PlaceholderPanel title="Environment" area="env" />
-        <PlaceholderPanel title="Eject" area="eject" />
-        <PlaceholderPanel title="Raw feed" area="raw" />
+        <GroundTrackPanel history={telemetry.history} latest={telemetry.latest} />
+        <AttitudePanel latest={telemetry.latest} />
+        <GpsPanel latest={telemetry.latest} />
+        <SpeedPanel history={telemetry.history} latest={telemetry.latest} />
+        <EnvironmentPanel history={telemetry.history} latest={telemetry.latest} />
+        <EjectPanel
+          latest={telemetry.latest}
+          lastAck={telemetry.lastAck}
+          now={now}
+          sendCommand={telemetry.sendCommand}
+        />
+        <RawFeedPanel raw={telemetry.raw} />
       </main>
     </div>
   )

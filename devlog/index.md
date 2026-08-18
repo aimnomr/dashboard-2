@@ -13,3 +13,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 008 · Frontend design decisions
 - 2026-08-18 · 009 · Backend spine and mock source
 - 2026-08-18 · 010 · Frontend scaffold and first panels
+- 2026-08-18 · 011 · Remaining seven panels
