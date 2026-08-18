@@ -53,6 +53,30 @@ GPS VCC -> 3V3      GPS GND -> GND
 Note the crossover. `GPS_RX 20` in `Config.h` means *the ESP32's RX pin*, which connects to
 the module's **TX**. Wiring TX to TX is the classic failure and produces `chars=0`.
 
+## UART_PinTest — run this when the relay reports `chars=0`
+
+`chars=0` means **zero bytes ever arrived**, which is different from garbage. A wrong baud
+rate still produces garbage, because the UART samples edges and emits nonsense. Zero rules
+out sky, antenna, cold start and baud in one reading — nothing is reaching the pin.
+
+**On the ESP32-S3, GPIO19 and GPIO20 are the native USB D− and D+ lines**, and the GPS is
+wired to exactly those. With *USB CDC On Boot* enabled, the USB peripheral claims them and
+they silently stop working as a UART — indistinguishable from a dead module.
+
+This sketch settles it without the GPS being involved at all:
+
+1. Disconnect the GPS from those pins.
+2. Jumper pin 19 directly to pin 20.
+3. Flash, open Serial Monitor at 115200.
+
+| Result | Meaning |
+|---|---|
+| `LOOPBACK OK` | The pins work. The fault is the module, its power, or the wiring |
+| `LOOPBACK FAIL` | The pins are not usable as a UART. Try **Tools → USB CDC On Boot → Disabled**, reflash, retest. If it still fails, move the GPS to another pin pair |
+
+Change `TEST_RX_PIN` / `TEST_TX_PIN` to try a candidate pair *before* committing to
+rewiring. See `ISS-14`.
+
 ## GPS_Passthrough — desk test only
 
 Dumps raw GPS output straight to USB and sweeps five baud rates. Useful when the unit is

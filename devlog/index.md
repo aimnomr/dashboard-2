@@ -26,3 +26,7 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 021 · Cycle overrun reporting and resync
 - 2026-08-19 · 022 · First GEN3 hardware packets, and GPS diagnostics
 - 2026-08-19 · 023 · GPS relay diagnostic pair
+- 2026-08-19 · 024 · First SD card log analysed
+- 2026-08-19 · 025 · GPS delivers zero bytes — root cause narrowed
+- 2026-08-19 · 026 · GPS fault is power, not pins
+- 2026-08-19 · 027 · GEN3 parser

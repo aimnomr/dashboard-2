@@ -27,6 +27,9 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
 | [ISS-12](#iss-12) | Field laptop provisioning | 🔴 Open | Aiman | Launch day |
 | [ISS-13](#iss-13) | Frequency coordination with other teams | 🔴 Open | Aiman | Launch day, link viability |
+| [ISS-14](#iss-14) | GPS delivers zero bytes — module appears unpowered | 🔴 Open | Aiman | All GPS telemetry |
+| [ISS-15](#iss-15) | SQLite store not built | 🟡 Deferred | — | Post-flight analysis |
+| [ISS-16](#iss-16) | Replay not built | 🟡 Deferred | — | Reviewing past flights |
 
 ---
 
@@ -352,4 +355,134 @@ frequency question first — see `wiki/decisions/gen3-packet-format.md`.
 that are not ours and report `[GCS] foreign packet, N so far`. That single line separates
 "the band is busy" from "my vehicle is silent" — otherwise indistinguishable, and they
 look identical at exactly the wrong moment.
+
+---
+
+<a id="iss-14"></a>
+## ISS-14 — GPS delivers zero bytes; module appears unpowered
+
+**Status** 🔴 Open · **Raised** 2026-08-19 · **Owner** Aiman
+
+> **Updated 2026-08-19.** Aiman reports the GPS module **used to light up but now does
+> not** once the whole system is powered together. That supersedes the USB-pin hypothesis
+> below as the leading cause: **an unpowered module explains `chars=0` completely**, and no
+> pin theory is needed to account for it. The USB-pin material is retained because it is
+> still worth ruling out if power turns out to be fine.
+>
+> **Leading cause is now power**, in two variants:
+>
+> **A — the module is on the switched `Ve` rail rather than permanent `3V3`.** On the
+> Heltec V3 `Ve` is gated by GPIO36. `Pins_Assignment.md` specifies `VCC - 3.3V` for the
+> GPS, so confirm which pin it is physically on.
+>
+> **B — brownout under full load.** LoRa TX peaks around 120 mA at 17 dBm, the SD card
+> bursts to ~100 mA, plus OLED, two I²C sensors and a GPS drawing ~50 mA while acquiring.
+> Supporting evidence from the project's own documentation: `Pins_Assignment.md` already
+> puts the **SD card on external 5 V**, which is someone having hit this rail's limit
+> before.
+>
+> **Resolve in this order:**
+>
+> 1. **Measure 3.3 V at the module's VCC pin with the system running.** One measurement
+>    settles A vs B vs neither. 0 V means wiring or the `Ve` rail; a sagging reading means
+>    brownout; a steady 3.3 V moves suspicion back to the module or the pins.
+> 2. Run `firmware/tools/GPS_Minimal` — it starts nothing but the GPS UART, so it is the
+>    lightest possible load. Data flowing here but not in the full firmware proves a power
+>    budget problem.
+> 3. **Check which LED you are watching.** Many NEO-6M breakouts have only a PPS/fix
+>    indicator, which stays dark until a fix exists. A dark PPS LED with no fix is normal
+>    and not evidence of anything.
+> 4. Only if power is confirmed good, continue to the pin investigation below.
+
+**Problem.** The GPS has never produced a fix. The relay diagnostic settled why:
+
+```
+$GPSD,1,chars=0,ok=0,bad=0,inview=0,used=0,fix=0,hdop=-
+```
+
+**`chars=0`** — not corrupted data, not garbage, but zero bytes ever arriving. A wrong
+baud rate still yields garbage, because the UART samples edges and emits nonsense. Zero
+means nothing reaches the pin at all, which rules out sky view, antenna, cold start and
+baud rate in one reading.
+
+**Leading cause.** On the ESP32-S3, **GPIO19 and GPIO20 are the native USB D− and D+
+lines**, and the firmware uses exactly those:
+
+```c
+#define GPS_RX  20      // ESP32-S3 USB_D+
+#define GPS_TX  19      // ESP32-S3 USB_D-
+```
+
+With **USB CDC On Boot** enabled in the Arduino board menu, the USB peripheral claims both
+and they stop functioning as a UART — silently, presenting exactly as a dead GPS module.
+
+**Supporting evidence.** The GEN1 bench packet from 2026-08-18 also carried
+`lat=0, lng=0, sat=0`. That is three sessions across two firmware generations with no GPS
+data, which fits "never worked on this wiring" better than "recently broke".
+
+**Needed to resolve, in order.**
+
+1. Run `firmware/tools/UART_PinTest` with a jumper between pins 19 and 20 and the GPS
+   disconnected. It reports whether the pins function as a UART at all, without the GPS
+   being involved.
+2. If it fails: **Tools → USB CDC On Boot → Disabled**, reflash, retest. Costs nothing.
+3. If it still fails: move the GPS to a different pin pair and retest with the same sketch
+   *before* rewiring. Verify the candidate pins against the Heltec V3 pinout — several
+   ESP32-S3 pins are reserved for flash, PSRAM or strapping.
+4. If the pins pass but the GPS stays silent: the fault is the module, its power, or the
+   wiring between them. Confirm 3.3 V at the module and that TX/RX are crossed —
+   module TX to board RX, module RX to board TX.
+
+**Impact.** No GPS means no position, no ground track and no descent-rate cross-check.
+Every other subsystem is confirmed working, so this is the single open hardware fault.
+
+Note the pin choice predates this project: it comes from `Pins_Assignment.md` and GEN1,
+and was carried into GEN3 unchanged because GEN1 was treated as proven. It was not.
+
+---
+
+<a id="iss-15"></a>
+## ISS-15 — SQLite store not built
+
+**Status** 🟡 Deferred · **Raised** 2026-08-19
+
+**Problem.** `wiki/decisions/stack.md` specifies a parsed store — SQLite, one flat table,
+one INSERT per packet — and it has never been built. The pipeline currently ends at the
+WebSocket, so nothing parsed is persisted. The **raw log is unaffected** and still captures
+every byte, so no data is at risk; what is missing is queryable history.
+
+**Deferred 2026-08-19** to keep GEN3 dashboard support focused.
+
+**Cost of deferring.** The schema needs to carry `seq`, `vehicle_ms` and `crc_ok`. Built
+now it is one schema; built after the GEN3 work lands it is a schema plus a migration.
+Small either way, but the cheap moment is while the fields are being added anyway.
+
+**Needed to resolve.** One flat table, columns matching the GEN3 frame plus session id, PC
+arrival time, vehicle ms, CRC status and a parse-status flag. Deliberately **not**
+normalised — v1's four-table schema produced 256 orphaned readings and 6 duplicated
+children, which one flat insert makes structurally impossible.
+
+---
+
+<a id="iss-16"></a>
+## ISS-16 — Replay not built
+
+**Status** 🟡 Deferred · **Raised** 2026-08-19
+
+**Problem.** Live view only. There is no way to re-open a past flight.
+
+**Deferred 2026-08-19**, consistent with taking features independently.
+
+**Why it is now unusually cheap.** The SD card holds **complete framed GEN3 packets**, so
+a `file_source` pointed at `FLIGHT22.CSV` replays a real flight through the real pipeline
+with no conversion, no adapter and no second parser. The source seam in
+`backend/dashboard/sources/base.py` was designed for exactly this, and
+`sources/file_source.py` is already named in the layout.
+
+Recovering a landed CanSat and dragging its card onto the dashboard would then be the
+whole workflow.
+
+**Needed to resolve.** Implement `file_source.py`: read lines, emit at the recorded
+cadence or as fast as requested, and a way to select the file. Everything downstream is
+unchanged by construction.
 

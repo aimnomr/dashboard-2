@@ -1,59 +1,59 @@
 # Status
 
-**Updated** 2026-08-18 · end of session 1
+**Updated** 2026-08-19 · end of session 2
 
 ## Now
 
-**The dashboard runs end to end against simulated telemetry.** No hardware needed.
+**GEN3 firmware flies on real hardware. The dashboard is mid-conversion to read it.**
 
-```bash
-cd backend && .venv\Scripts\activate
-python -m devtools.run_mock --interval 0.3     # simulated flight
-cd frontend && npm run dev                      # http://localhost:5173
-```
+**Firmware — working.** Both units written, flashed and running. Confirmed on hardware:
 
-Or single-process against the built bundle: `python -m devtools.run_mock`, then
-http://127.0.0.1:8000.
+- CRC agreement — 5/5 over the air, 85/85 from the SD card
+- Cadence exact — 1000.00 ms per packet across 199 s, zero overruns
+- Barometer sound — −0.993 pressure/altitude correlation, predicted noise matches observed
+- IMU healthy — −47 mg bias, inside datasheet tolerance
+- SD logging clean — no corrupt writes, pandas recipe verified against the real file
 
-**Backend** — `source → raw log → parser → WebSocket`. The mock plugs into the source
-seam at the top, so development exercises the real launch code. Serial and mock are
-separated by entry point: `python -m dashboard` has no flag that selects simulated data.
+**One hardware fault: the GPS has never worked** (`ISS-14`). Deliberately set aside.
 
-**Frontend** — single fixed screen, nine panels, high-contrast light theme for outdoor
-sunlight. Live socket with reconnect, link freshness on an independent clock.
+**Dashboard — step 1 of 7 done.** The GEN3 parser is written and verified against real
+hardware data. Steps 2–7 are unstarted. Plan in
+`wiki/decisions/dashboard-gen3-plan.md`, with eight numbered design rules (S1–S8) that the
+remaining work implements.
 
-**Verified** — 17 backend tests, 16 frontend tests, 25 guard-hook cases, strict
-TypeScript build, end-to-end serve with no external URLs in the bundle.
-
-**Not verified** — nobody has looked at the UI in a browser. Everything visual is
-reasoned, not observed.
-
-Settled this session: rules and enforcement hooks · wiki and devlog conventions · GEN2
-packet as canonical · ingest pipeline · stack · frontend design. All in
-`wiki/decisions/`.
+The live view still runs against the GEN2 mock and is unaffected.
 
 ## Next
 
-1. **Look at the UI in a browser.** First real feedback on layout, density and the
-   sunlight treatment. Nothing else should be built until someone has seen it.
-2. **SQLite store** — decided in `wiki/decisions/stack.md`, deferred during the frontend
-   push. One flat table, one insert per packet. The only major piece of the pipeline
-   still missing.
-3. **`ISS-07` + `ISS-08` with the firmware member** — packet contract. Deferred to
-   unblock development, not resolved. A monotonic counter remains the highest-value
-   addition; without it packet loss stays undetectable.
+1. **Pin the GEN3 parser down with tests.** Verified ad hoc, not yet a regression suite.
+   `logs/raw/FLIGHT22.CSV` is the corpus — 85 real packets with valid checksums.
+2. **`linkstats.py`** — pure module owning `seq` tracking, gap arithmetic, restart
+   detection and the rolling loss window. Rules S1–S5. No I/O, so the awkward cases
+   (restart, duplicate, mid-flight start) are unit-testable without hardware.
+3. **Pipeline and envelope** — carry `seq`, `vehicle_ms`, `crc_ok`, `link`.
+4. **Mock source → GEN3**, with injectable `seq` gaps and CRC failures. Otherwise the loss
+   display gets tested for the first time on launch day.
+5. **Frontend** — nullable `seq`/`ms` so GEN1/GEN2 still render; panels per S5–S8,
+   including relabelling the chute state from **"Deployed"** to **"Commanded"**.
 
 ## Blocked
 
-- `ISS-06` — competition requirements unknown, `wiki/source/competition/` still empty
-- `ISS-09` — `CANSAT_DATA` not recovered; the mock is the only telemetry source
-- `ISS-02` — GEN2 ground unit firmware missing, so the uplink cannot be tested against
-  hardware
+- `ISS-13` — **frequency coordination.** Still the largest launch-day risk and entirely
+  external. Three other teams on 919.0 MHz costs 75% of packets and no firmware change
+  helps. Needs an answer from the organisers.
+- `ISS-06` — competition requirements unknown; `wiki/source/competition/` still empty.
+- `ISS-14` — GPS unpowered. Set aside by choice, not blocked on us. Resolving it starts
+  with a multimeter on the module's VCC, then `firmware/tools/GPS_Minimal`.
 
-## Waiting on Aiman
+## Deferred by decision
 
-Deletions, since all deletion is yours:
+- `ISS-15` SQLite store · `ISS-16` replay — both out of scope for the GEN3 dashboard work.
+  Replay is unusually cheap now: the parser already reads SD packets, so a `file_source`
+  would replay a real flight with no conversion.
 
-- `frontend/src/lib/rocketModel.ts` — orphaned by the 3D revert. Currently excluded in
-  `tsconfig.json`; **remove that exclude block once the file is gone.**
-- Six redundant `.gitkeep` files — only `wiki/source/competition/` still needs one.
+## Notes for next session
+
+- **Neither firmware sketch has been compiled here** — no Arduino toolchain. Aiman builds
+  and flashes; that has worked so far.
+- `logs/` is gitignored, so `FLIGHT22.CSV` exists only on this machine. Fine for a bench
+  sample; worth deciding where real flight logs get archived before there is one.
