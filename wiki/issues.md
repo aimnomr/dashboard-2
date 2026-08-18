@@ -26,6 +26,7 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-10](#iss-10) | Ground unit output buffer smaller than payload | 🟢 Resolved | — | — |
 | [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
 | [ISS-12](#iss-12) | Field laptop provisioning | 🔴 Open | Aiman | Launch day |
+| [ISS-13](#iss-13) | Frequency coordination with other teams | 🔴 Open | Aiman | Launch day, link viability |
 
 ---
 
@@ -296,4 +297,59 @@ to forget.
 
 **Needed to resolve.** A written pre-launch checklist, and a dry run on the actual field laptop
 with the actual ground unit — not on a development machine.
+
+---
+
+<a id="iss-13"></a>
+## ISS-13 — Frequency coordination with other teams
+
+**Status** 🔴 Open · **Raised** 2026-08-18 · **Owner** Aiman
+
+**Problem.** Other teams will fly rockets carrying similar LoRa systems. If any of them
+transmits on 919.0 MHz, their packets and ours destroy each other on the air. Measured
+collision rate at SF7 with a 185 ms CSV packet in a 1 s cycle:
+
+| Other teams on the same frequency | Our packets destroyed |
+|---|---|
+| 1 | **37%** |
+| 3 | **75%** |
+| 5 | **90%** |
+
+A packet is lost if any other transmission overlaps it at all, so the vulnerable window
+is twice the airtime — 370 ms of every second.
+
+**The common misconception, stated plainly: a different sync word does not prevent
+collisions.** It prevents *decoding* someone else's packet. It does nothing about their
+RF energy landing on top of ours. The same is true of a team ID in the payload and of the
+CRC — those detect damage, they do not prevent it.
+
+| Mechanism | Prevents collision | Prevents decoding wrong packet |
+|---|---|---|
+| **Different frequency** | ✅ | ✅ |
+| Different spreading factor | mostly | ✅ |
+| Different sync word | ❌ | ✅ |
+| Team ID in payload | ❌ | ✅ |
+| CRC | ❌ | detects only |
+
+**Only frequency separation gives real isolation.**
+
+**Needed to resolve.**
+
+1. Ask the organisers whether frequencies are assigned. This is now the most important
+   unknown inside `ISS-06`.
+2. If not assigned, agree channels with the other teams on the day. Space them at least
+   250 kHz apart — twice the 125 kHz bandwidth.
+3. Keep frequency, sync word and team ID in the `Config.h` block of both units so they
+   can be changed at the launch site without hunting through code.
+4. Keep **SF7**. Shortest airtime is the smallest collision target; in a crowded band a
+   low spreading factor is a defence, not a compromise.
+
+**If a clean channel proves unavailable**, revisit binary framing: 39 bytes instead of
+109 halves the collision exposure (16% instead of 37% against one other team). Decide the
+frequency question first — see `wiki/decisions/gen3-packet-format.md`.
+
+**Diagnostic worth building regardless.** Have the ground station count received packets
+that are not ours and report `[GCS] foreign packet, N so far`. That single line separates
+"the band is busy" from "my vehicle is silent" — otherwise indistinguishable, and they
+look identical at exactly the wrong moment.
 

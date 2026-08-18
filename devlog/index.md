@@ -19,3 +19,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 014 · Revert 3D attitude back to the 2D horizon
 - 2026-08-18 · 015 · Fix guard hook false positive
 - 2026-08-18 · 016 · First real hardware packet
+- 2026-08-18 · 017 · GEN1 vs GEN2 structural comparison
+- 2026-08-18 · 018 · GEN3 plan, packet format, and link analysis
+- 2026-08-19 · 019 · Ground station GEN3 draft
