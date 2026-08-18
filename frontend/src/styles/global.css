@@ -1,0 +1,200 @@
+@import './tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--size-body);
+  /* The live view is a fixed screen. Nothing important may ever sit below the fold
+   * during descent, so the page itself must not scroll. */
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- app shell ------------------------------------------------------------ */
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--gap);
+  padding: var(--gap);
+}
+
+.grid {
+  display: grid;
+  gap: var(--gap);
+  min-height: 0;
+  grid-template-columns: 1.45fr 1fr 1fr;
+  grid-template-rows: 1.15fr 1fr 0.85fr;
+  grid-template-areas:
+    "altitude track    attitude"
+    "altitude gps      speed"
+    "env      eject    raw";
+}
+
+@media (max-width: 1280px) {
+  /* Smaller field laptops: keep the same panels, tighten the proportions. */
+  .grid { grid-template-columns: 1.3fr 1fr 1fr; }
+  :root { --size-hero: 2.25rem; --size-value: 1.25rem; }
+}
+
+/* ---- panel ---------------------------------------------------------------- */
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin-bottom: 0.375rem;
+}
+
+.panel__title {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.panel__note {
+  font-size: var(--size-label);
+  color: var(--text-faint);
+}
+
+.panel__body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel--placeholder {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.panel--placeholder .panel__title { color: var(--text-faint); }
+
+/* ---- values --------------------------------------------------------------- */
+
+.hero {
+  font-size: var(--size-hero);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.hero__unit {
+  font-size: 0.4em;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-left: 0.25rem;
+}
+
+.value { font-size: var(--size-value); font-weight: 700; line-height: 1.1; }
+.label {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* ---- status bar ----------------------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  align-items: stretch;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.statusbar__item {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.375rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 7rem;
+}
+
+.statusbar__spacer { flex: 1; }
+
+/* State chips carry a word and an icon as well as a colour — never colour alone. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chip--ok      { color: var(--ok); }
+.chip--warn    { color: var(--warn); }
+.chip--alert   { color: var(--alert); }
+.chip--unknown { color: var(--unknown); }
+
+.state-box {
+  border-width: 2px;
+  border-style: solid;
+}
+.state-box--ok      { border-color: var(--ok);      background: var(--ok-bg); }
+.state-box--warn    { border-color: var(--warn);    background: var(--warn-bg); }
+.state-box--alert   { border-color: var(--alert);   background: var(--alert-bg); }
+.state-box--unknown { border-color: var(--unknown); background: var(--unknown-bg); }
+
+/* A lost link must be impossible to mistake for a calm one. */
+@keyframes pulse-alert {
+  0%, 100% { background: var(--alert-bg); }
+  50%      { background: #fecaca; }
+}
+.state-box--alert.is-pulsing { animation: pulse-alert 1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .state-box--alert.is-pulsing { animation: none; }
+}
+
+/* ---- simulated banner ------------------------------------------------------ */
+
+.simbanner {
+  background: var(--sim-bg);
+  color: var(--sim);
+  border: 2px solid var(--sim);
+  border-radius: var(--radius);
+  padding: 0.375rem 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ---- chart ---------------------------------------------------------------- */
+
+.chart { flex: 1; min-height: 0; position: relative; }
+.chart > .uplot { position: absolute; inset: 0; }
+.u-legend { display: none; }

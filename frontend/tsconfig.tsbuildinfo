@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/panel.tsx","./src/components/statusbar.tsx","./src/components/timeserieschart.tsx","./src/hooks/usenow.ts","./src/hooks/usetelemetry.ts","./src/lib/link.ts","./src/panels/altitudepanel.tsx","./src/types/telemetry.ts"],"version":"5.9.3"}

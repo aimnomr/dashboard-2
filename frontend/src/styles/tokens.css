@@ -1,0 +1,75 @@
+/* Design tokens — sun-first.
+ *
+ * This dashboard is read on a laptop, outdoors, in Malaysian daylight. Glare washes
+ * out low-contrast greys, and the operator gets about one second to read the vehicle's
+ * state during descent. Every value here is chosen for that situation, not for how it
+ * looks in a screenshot.
+ *
+ * Rules:
+ *   - Near-black on near-white. Nothing subtle.
+ *   - Status colours are DARK and saturated so they survive on white under glare.
+ *     Bright reds and greens vanish outdoors.
+ *   - Colour never carries meaning alone. Every state also has a word and a shape.
+ *   - No web fonts. There is no internet at the launch site (ISS-12).
+ *
+ * Everything is a custom property so a dark variant stays possible later without
+ * touching a single component.
+ */
+
+:root {
+  /* ---- surfaces ---- */
+  --bg: #ffffff;
+  --panel-bg: #ffffff;
+  --panel-bg-sunk: #f4f4f5;
+  --rule: #d4d4d8;
+  --rule-strong: #18181b;
+
+  /* ---- text ---- */
+  --text: #0a0a0a;
+  --text-dim: #52525b;
+  --text-faint: #71717a;
+
+  /* ---- state ---- */
+  /* Dark enough to hold contrast on white in direct sun. */
+  --ok: #15803d;
+  --ok-bg: #dcfce7;
+  --warn: #a16207;
+  --warn-bg: #fef3c7;
+  --alert: #b91c1c;
+  --alert-bg: #fee2e2;
+  --unknown: #52525b;
+  --unknown-bg: #f4f4f5;
+
+  /* ---- data ---- */
+  --trace: #1d4ed8;
+  --trace-2: #b91c1c;
+  --trace-3: #15803d;
+  --grid: #e4e4e7;
+
+  /* ---- simulated-data banner ---- */
+  --sim: #6b21a8;
+  --sim-bg: #f3e8ff;
+
+  /* ---- type ---- */
+  /* System stack only. A web font would need the network we will not have. */
+  --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+
+  --size-label: 0.6875rem;
+  --size-body: 0.875rem;
+  --size-value: 1.5rem;
+  --size-hero: 3rem;
+
+  /* ---- spacing ---- */
+  --gap: 0.5rem;
+  --pad: 0.75rem;
+  --radius: 6px;
+}
+
+/* Values the operator reads at a glance. Tabular figures stop digits jittering
+ * sideways as numbers change, which is what makes a fast reading possible. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
