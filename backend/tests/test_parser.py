@@ -126,6 +126,49 @@ def test_negative_altitude_does_not_warn():
     assert result.warnings == []
 
 
+class TestCapturedHardwarePacket:
+    """A real GEN1 line captured from the test firmware on 2026-08-18.
+
+    Captured output beats invented fixtures: this one happens to exercise the no-fix
+    filter and the absent-chute path at the same time, both of which are places where a
+    plausible-looking wrong answer would reach the operator.
+    """
+
+    LINE = (
+        "31.5,70.4,1010.0,-0.9,0.92,0.38,-0.05,-0.4,-0.3,4.1,"
+        "0.00000,0.00000,0.0,0,-11.0,12.25"
+    )
+
+    def test_parses_as_gen1_without_warnings(self):
+        result = parse_line(self.LINE)
+        assert result.ok
+        assert result.generation == "GEN1"
+        assert result.warnings == []
+
+    def test_negative_altitude_is_accepted(self):
+        # -0.9 m: altitude is relative to boot and drifts with barometric pressure.
+        assert parse_line(self.LINE).frame["alt"] == pytest.approx(-0.9)
+
+    def test_absent_chute_is_none(self):
+        assert parse_line(self.LINE).frame["chute"] is None
+
+    def test_invalid_gps_survives_parsing_as_zeros(self):
+        # The parser does not judge fix validity — it reports what arrived. Filtering
+        # 0,0 is the display's job, so that the raw value stays visible in the feed.
+        frame = parse_line(self.LINE).frame
+        assert frame["lat"] == 0.0
+        assert frame["lng"] == 0.0
+        assert frame["sat"] == 0
+
+    def test_very_strong_link_is_not_flagged_implausible(self):
+        # -11 dBm is hotter than anything in CANSAT_DATA (max -14) because the units
+        # were adjacent on a bench. Real, and must not be treated as corruption.
+        result = parse_line(self.LINE)
+        assert result.frame["rssi"] == pytest.approx(-11.0)
+        assert result.frame["snr"] == pytest.approx(12.25)
+        assert result.warnings == []
+
+
 def test_non_finite_values_are_rejected():
     for token in ("nan", "inf", "-inf"):
         result = parse_line(GEN2_LINE.replace("32.50", token, 1))

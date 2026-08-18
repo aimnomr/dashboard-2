@@ -17,9 +17,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  // src/lib/rocketModel.ts is left over from the reverted Three.js attitude panel.
-  // Nothing imports it and `three` is uninstalled, so it would fail to typecheck.
-  // PENDING DELETION — remove the file, then delete this exclude block.
-  "exclude": ["src/lib/rocketModel.ts"]
+  "include": ["src"]
 }
