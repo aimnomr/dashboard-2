@@ -2,6 +2,20 @@
 # .claude/settings.json and .claude/hooks/ ARE tracked: they carry the project's guard hook.
 .claude/settings.local.json
 
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+
+# Flight data — generated per run, accumulates.
+# PENDING CONFIRMATION: if the competition wants logs submitted, or you want them
+# preserved in history, remove this and commit them deliberately.
+logs/
+
 # OS
 Thumbs.db
 Desktop.ini

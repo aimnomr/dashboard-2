@@ -11,3 +11,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 006 · Build against GEN2 as emitted
 - 2026-08-18 · 007 · Choose the stack
 - 2026-08-18 · 008 · Frontend design decisions
+- 2026-08-18 · 009 · Backend spine and mock source

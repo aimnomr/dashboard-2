@@ -89,12 +89,26 @@ It fires a parachute. Requirements:
 
 ## Mock feed
 
-A small Python server implements the GEN2 simulator's 8-phase flight profile (documented in
-`../source/firmware/lora-link-and-protocol.md`) and serves it over WebSocket at 1 Hz.
+The mock is a **source**, plugged into the seam at the very top of the pipeline
+(`backend/devtools/mock_source.py`). It stands in for the CanSat, the LoRa link, the ground
+station and the USB hop — everything above the PC. It implements the GEN2 simulator's 8-phase
+flight profile documented in `../source/firmware/lora-link-and-protocol.md`.
 
-Chosen over a TypeScript port so the profile has **one implementation**, the frontend always
-talks to a real socket with no mock/live branching, and the same tool later serves as a backend
-test fixture. It also accepts the EJECT command, so that path is exercisable without hardware.
+Everything downstream — raw log, parser, WebSocket — is the **real launch code** in both paths,
+so developing against the mock exercises the code that will fly. A standalone mock server would
+have needed its own envelope builder, meaning a second parser free to drift from the real one.
+
+**Dev and launch are separated by entry point, not by a flag.** `python -m dashboard` reads the
+serial port and has no option that selects simulated data; the mock requires deliberately running
+`python -m devtools.run_mock`. Dependency direction is one-way: `devtools` imports `dashboard`,
+never the reverse.
+
+The mock accepts EJECT and flips the chute flag, so that path is exercisable without hardware —
+useful given `ISS-02`.
+
+**The feed is deliberately imperfect**: ~2% malformed lines and ~4% `[GCS]` status lines, with
+`--clean` to disable. A UI built against a perfect feed is a UI that has never been tested
+against the feed it will actually get.
 
 This partly answers `ISS-09`: the real telemetry was lost, but a faithful substitute can be
 regenerated from the documentation.
