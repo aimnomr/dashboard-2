@@ -10,3 +10,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 005 · Set project conventions
 - 2026-08-18 · 006 · Build against GEN2 as emitted
 - 2026-08-18 · 007 · Choose the stack
+- 2026-08-18 · 008 · Frontend design decisions
