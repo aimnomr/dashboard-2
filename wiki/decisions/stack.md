@@ -9,7 +9,7 @@ Decided 2026-08-18.
 | Frontend | **React + Vite** |
 | Charts | **uPlot** (canvas) |
 | Ground track | **No library** — raw canvas 2D XY trace, sidestepping `ISS-11` |
-| Attitude | **Three.js** — 3D vehicle pose |
+| Attitude | **No library** — raw canvas 2D artificial horizon |
 | Sparklines | **No library** — hand-rolled SVG path |
 | Tests | **pytest** (backend) · **vitest** (frontend) |
 | Raw log | append-only text file, written before parsing |

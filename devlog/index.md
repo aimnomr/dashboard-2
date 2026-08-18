@@ -16,3 +16,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 011 · Remaining seven panels
 - 2026-08-18 · 012 · Project .gitignore and attitude canvas fix
 - 2026-08-18 · 013 · 3D attitude with Three.js
+- 2026-08-18 · 014 · Revert 3D attitude back to the 2D horizon

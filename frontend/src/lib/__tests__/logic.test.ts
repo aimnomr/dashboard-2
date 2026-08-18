@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeAttitude, integrateSpin } from '../attitude'
+import { computeAttitude } from '../attitude'
 import { hasFix, niceScale, toLocal } from '../geo'
 import type { TelemetryFrame } from '../../types/telemetry'
 
@@ -110,35 +110,6 @@ describe('attitude', () => {
     const a = computeAttitude(frame({ ax: 0, ay: 0, az: 1, gx: 120, gy: 40, gz: 0 }))
     expect(a.reliable).toBe(false)
     expect(a.reason).toBe('tumbling')
-  })
-
-  it('integrates spin at the expected rate', () => {
-    // 90 deg/s for 1 s is a quarter turn.
-    expect(integrateSpin(0, 90, 1)).toBeCloseTo(Math.PI / 2, 6)
-  })
-
-  it('integrates negative rates the other way', () => {
-    expect(integrateSpin(0, -90, 1)).toBeCloseTo(-Math.PI / 2, 6)
-  })
-
-  it('clamps a long gap instead of whipping the model round', () => {
-    // A dropout, or a backgrounded tab with throttled timers, produces a huge delta.
-    // Integrating 300 s of rotation would spin the model through dozens of turns and
-    // read as real motion. The gap is capped at 2 s instead.
-    const capped = integrateSpin(0, 90, 300)
-    expect(capped).toBeCloseTo(integrateSpin(0, 90, 2), 6)
-  })
-
-  it('ignores non-advancing or invalid deltas', () => {
-    expect(integrateSpin(1.2, 90, 0)).toBe(1.2)
-    expect(integrateSpin(1.2, 90, -5)).toBe(1.2)
-    expect(integrateSpin(1.2, 90, Number.NaN)).toBe(1.2)
-  })
-
-  it('wraps so a long session cannot lose precision', () => {
-    let angle = 0
-    for (let i = 0; i < 2000; i++) angle = integrateSpin(angle, 200, 1)
-    expect(Math.abs(angle)).toBeLessThanOrEqual(Math.PI * 2)
   })
 
   it('treats a stable chute descent as reliable', () => {
