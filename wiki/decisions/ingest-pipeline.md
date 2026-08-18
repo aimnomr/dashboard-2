@@ -45,6 +45,25 @@ validation, storage and UI are identical downstream.
 The seam is designed in from the start because retrofitting it means rewriting the ingest layer.
 **Replay itself is not being built yet** — live only, features taken independently.
 
+## Interim: GEN2 is consumed exactly as emitted
+
+**Decided 2026-08-18.** The dashboard is built against the GEN2 packet **as it is today**. No
+firmware change is requested, so development is not blocked on another team member.
+
+Accepted consequences, tracked as `ISS-07` and `ISS-08`:
+
+- The parser strips the `CHUTE:` prefix itself.
+- **Packet loss cannot be detected** — there is no counter. Link health is presented from time
+  since last packet, RSSI and SNR only, and must never display a gap or loss figure it cannot
+  actually compute.
+- Timestamps are **PC arrival time** at 1 s resolution, not sampling time. Anything time-derived
+  — descent rate, phase timing — inherits that error.
+- Corruption that still parses is undetectable. Range checks against the documented clamps in
+  `../source/firmware/packet-format.md` are the only available defence.
+
+Write the parser so a counter, timestamp or checksum can be **added** later without restructuring
+it — an extra field should extend the frame, not rewrite the pipeline.
+
 ## Consequences for the parser
 
 Driven by what the source material showed:

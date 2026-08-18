@@ -8,3 +8,5 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 003 · Extract source material into the wiki
 - 2026-08-18 · 004 · Adopt GEN2 packet format, add issue tracker
 - 2026-08-18 · 005 · Set project conventions
+- 2026-08-18 · 006 · Build against GEN2 as emitted
+- 2026-08-18 · 007 · Choose the stack

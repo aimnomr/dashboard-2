@@ -20,10 +20,12 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-04](#iss-04) | RA-01 cannot operate at 919 MHz | 🟡 Deferred | Firmware member | Ground station BOM |
 | [ISS-05](#iss-05) | COM port assignments contradict | 🟡 Deferred | — | Ingest config |
 | [ISS-06](#iss-06) | Competition requirements unknown | 🔴 Open | Aiman | Scope, mandatory displays |
-| [ISS-07](#iss-07) | `CHUTE:` field is not numeric | 🔴 Open | Firmware member | Parser design |
-| [ISS-08](#iss-08) | No packet counter, timestamp, or checksum | 🔴 Open | Firmware member | Loss detection, replay |
+| [ISS-07](#iss-07) | `CHUTE:` field is not numeric | 🟡 Deferred | Firmware member | — (worked around) |
+| [ISS-08](#iss-08) | No packet counter, timestamp, or checksum | 🟡 Deferred | Firmware member | Loss detection, true time axis |
 | [ISS-09](#iss-09) | Raw source files no longer present | 🔴 Open | Aiman | Test data availability |
 | [ISS-10](#iss-10) | Ground unit output buffer smaller than payload | 🔴 Open | Firmware member | Packet integrity |
+| [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
+| [ISS-12](#iss-12) | Field laptop provisioning | 🔴 Open | Aiman | Launch day |
 
 ---
 
@@ -126,27 +128,47 @@ of the packet contract and the UI.
 <a id="iss-07"></a>
 ## ISS-07 — `CHUTE:` field is not numeric
 
-**Status** 🔴 Open · **Raised** 2026-08-18 · **Owner** Firmware member
+**Status** 🟡 Deferred · **Raised** 2026-08-18 · **Deferred** 2026-08-18 · **Owner** Firmware member
 
 **Problem.** GEN2 field 15 is the literal string `CHUTE:0` / `CHUTE:1`, not a bare digit. It is
 the only non-numeric field in an otherwise uniform numeric CSV, so every parser needs a special
 case, and `float()` on it raises.
 
-**Decision needed.** Either:
+**Interim decision (2026-08-18).** Take **option (b)** — the **dashboard strips the `CHUTE:`
+prefix on ingest**, and GEN2 is consumed exactly as it is emitted today. No firmware change is
+requested, so dashboard development is not blocked waiting on another team member.
 
 - **(a)** Firmware drops the prefix, emitting `0` / `1` — uniform packet, one-line firmware
-  change, but breaks anything already reading the `CHUTE:` form; or
-- **(b)** Dashboard strips the prefix on ingest — no firmware change, permanent special case.
+  change, but breaks anything already reading the `CHUTE:` form.
+- **(b)** ✅ Dashboard strips the prefix on ingest — no firmware change, permanent special case.
 
-Worth settling alongside `ISS-08`, since both are packet-contract changes and are cheaper made
-together than separately.
+**Still to revisit.** Whether the prefix is eventually dropped at source. Low urgency: the
+workaround is a few lines and is confined to the parser. Worth raising with the firmware member
+whenever `ISS-08` is discussed, since both are packet-contract changes.
 
 ---
 
 <a id="iss-08"></a>
 ## ISS-08 — No packet counter, timestamp, or checksum
 
-**Status** 🔴 Open · **Raised** 2026-08-18 · **Owner** Firmware member
+**Status** 🟡 Deferred · **Raised** 2026-08-18 · **Deferred** 2026-08-18 · **Owner** Firmware member
+
+**Deferred (2026-08-18).** Development proceeds against the GEN2 packet **exactly as it is
+emitted today** — no additions requested — so that the dashboard is not blocked on a firmware
+change owned by another team member.
+
+The consequences below are therefore **accepted for now** and must be designed around:
+
+- The dashboard **cannot detect packet loss**. Link health must be presented from what is
+  available — time since last packet, RSSI and SNR — and must not imply gap counts it cannot
+  compute.
+- The time axis is **PC arrival time**, at 1 s resolution, not sampling time.
+- A corrupted-but-well-formed line is **indistinguishable from good data**. Range checks against
+  the known clamps are the only defence available.
+
+Revisit before flight if the firmware member has capacity — a monotonic counter remains the
+single highest-value addition, and the parser should be written so that adopting one later is
+additive rather than a rewrite.
 
 **Problem.** Neither generation includes any of the three.
 
@@ -211,3 +233,51 @@ stale chute state during descent.
 
 **Needed to resolve.** Size the ground unit buffer at or above 180 + RSSI/SNR width, and confirm
 worst-case packet length against the GEN2 format specifiers.
+
+---
+
+<a id="iss-11"></a>
+## ISS-11 — Offline map tiles for field use
+
+**Status** 🔴 Open · **Raised** 2026-08-18
+
+**Problem.** The GPS panel needs a map. Leaflet or MapLibre fetch tiles from a remote server by
+default. **There is no internet at the launch site**, so the map renders as blank grey squares
+exactly when it is needed.
+
+**Options.**
+
+- **(a)** Pre-cache tiles for the launch site into the repo or a local folder, and point Leaflet
+  at a local tile path. Requires knowing the launch coordinates and zoom range in advance, and
+  tile licensing must be checked for OpenStreetMap.
+- **(b)** Skip the basemap. Plot the ground track as a plain XY trace with a scale bar and the
+  launch point marked. No dependency, no tiles, works anywhere.
+- **(c)** Both — XY trace always available, basemap layered underneath when tiles are present.
+
+**Impact.** Easy to solve early, painful to discover on launch day. Blocks nothing else — the
+GPS panel can be built against a plain XY trace and gain a basemap later.
+
+**Needed to resolve.** Launch site coordinates (also needed for `ISS-06`), then decide.
+
+---
+
+<a id="iss-12"></a>
+## ISS-12 — Field laptop provisioning
+
+**Status** 🔴 Open · **Raised** 2026-08-18 · **Owner** Aiman
+
+**Problem.** The chosen stack has runtime prerequisites that must be present *before* leaving for
+the launch site, because there is no internet there:
+
+- Python installed, with the virtual environment created and dependencies installed
+- The frontend **already built** — `npm run build` needs the network
+- The correct USB serial driver for the Heltec board (CP210x or CH34x)
+- COM port identified, or auto-detection verified on that specific machine
+
+**Impact.** Any one of these missing means no dashboard on launch day, with no way to fix it in
+the field. This is the accepted cost of the Python + browser choice — cheap to manage, expensive
+to forget.
+
+**Needed to resolve.** A written pre-launch checklist, and a dry run on the actual field laptop
+with the actual ground unit — not on a development machine.
+
