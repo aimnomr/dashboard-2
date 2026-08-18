@@ -1,4 +1,4 @@
-# PreToolUse guard for the MRCC CANSAT dashboard project.
+# PreToolUse guard for the MRCC CanSat dashboard project.
 #
 # Enforces two project rules at the harness level so they cannot be violated by drift:
 #   1. No file deletion  - only the user deletes files. Blanking a file counts as deletion.
@@ -23,6 +23,27 @@ function Deny([string]$msg) {
     exit 2
 }
 
+function Remove-QuotedText([string]$text) {
+    # Blank out the CONTENTS of quoted strings before pattern matching.
+    #
+    # Without this, prose that merely mentions a command trips the guard - a commit
+    # message containing "rm", or an echoed line like "what git has", was blocked even
+    # though nothing was being executed.
+    #
+    # Blanking the contents rather than anchoring the patterns to the start of a command
+    # keeps detection broad: `... | ForEach-Object { Remove-Item $_ }` and
+    # `npm test && git push` still match, because those are real tokens outside quotes.
+    #
+    # Known gap: a command smuggled entirely inside a string, e.g.
+    # `powershell -c "git push"`, is no longer seen. This guard exists to stop drift,
+    # not a determined bypass, and that trade is worth removing the false positives.
+    $t = [regex]::Replace($text, "(?s)@'.*?'@", "''")
+    $t = [regex]::Replace($t,   '(?s)@".*?"@', '""')
+    $t = [regex]::Replace($t,   "'[^']*'",     "''")
+    $t = [regex]::Replace($t,   '"[^"]*"',     '""')
+    return $t
+}
+
 # ---------------------------------------------------------------- rule 1b
 # Writing empty content over a file that already exists is a disguised delete.
 if ($tool -eq 'Write') {
@@ -40,6 +61,9 @@ if ($tool -ne 'Bash' -and $tool -ne 'PowerShell') { exit 0 }
 $cmd = [string]$ti.command
 if ([string]::IsNullOrWhiteSpace($cmd)) { exit 0 }
 
+# All matching runs against the scrubbed text; all messages quote the original.
+$scan = Remove-QuotedText $cmd
+
 # ----------------------------------------------------------------- rule 1a
 # Explicit deletion commands, in either shell.
 $deletePatterns = @(
@@ -50,7 +74,7 @@ $deletePatterns = @(
     '\.delete\('
 )
 foreach ($p in $deletePatterns) {
-    if ($cmd -imatch $p) {
+    if ($scan -imatch $p) {
         Deny "this command deletes files. All deletion is the user's action - list the paths and the reason instead.`nCommand: $cmd"
     }
 }
@@ -65,7 +89,7 @@ $readOnly = @(
 )
 
 # Split on shell separators so `foo && git push` is still inspected.
-$segments = [regex]::Split($cmd, '(?:\|\||&&|;|\||\r?\n)')
+$segments = [regex]::Split($scan, '(?:\|\||&&|;|\||\r?\n)')
 
 foreach ($seg in $segments) {
     $s = $seg.Trim()
@@ -110,7 +134,7 @@ foreach ($seg in $segments) {
     }
     if ($ok) { continue }
 
-    Deny "``git $sub`` is not read-only. The user runs all mutating git commands - propose a commit title and body instead.`nCommand: $s"
+    Deny "``git $sub`` is not read-only. The user runs all mutating git commands - propose a commit title and body instead.`nCommand: $cmd"
 }
 
 exit 0

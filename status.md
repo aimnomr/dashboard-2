@@ -4,28 +4,56 @@
 
 ## Now
 
-Planning. No application code yet — the stack is not settled.
+**The dashboard runs end to end against simulated telemetry.** No hardware needed.
 
-Working rules agreed and enforced by a `PreToolUse` hook. Wiki populated from the source
-material: hardware, firmware, LoRa protocol, packet format, and the v1 Node-RED stack are all
-documented. Conventions set for wiki naming, devlog entries, and this file.
+```bash
+cd backend && .venv\Scripts\activate
+python -m devtools.run_mock --interval 0.3     # simulated flight
+cd frontend && npm run dev                      # http://localhost:5173
+```
 
-Settled so far:
+Or single-process against the built bundle: `python -m devtools.run_mock`, then
+http://127.0.0.1:8000.
 
-- GEN2 packet is the canonical format — 15 fields, 17 at the PC (`ISS-01`)
-- Ingest pipeline — raw bytes to disk before parsing, ground unit as a dumb pipe,
-  source treated as a seam (`wiki/decisions/ingest-pipeline.md`)
-- Live view only for now; replay deferred, features taken independently
+**Backend** — `source → raw log → parser → WebSocket`. The mock plugs into the source
+seam at the top, so development exercises the real launch code. Serial and mock are
+separated by entry point: `python -m dashboard` has no flag that selects simulated data.
+
+**Frontend** — single fixed screen, nine panels, high-contrast light theme for outdoor
+sunlight. Live socket with reconnect, link freshness on an independent clock.
+
+**Verified** — 17 backend tests, 16 frontend tests, 25 guard-hook cases, strict
+TypeScript build, end-to-end serve with no external URLs in the bundle.
+
+**Not verified** — nobody has looked at the UI in a browser. Everything visual is
+reasoned, not observed.
+
+Settled this session: rules and enforcement hooks · wiki and devlog conventions · GEN2
+packet as canonical · ingest pipeline · stack · frontend design. All in
+`wiki/decisions/`.
 
 ## Next
 
-1. Settle the packet contract with the firmware member — `ISS-07` and `ISS-08` together,
-   since both are contract changes and are cheaper agreed in one conversation
-2. Confirm the stack — Python backend + browser frontend was proposed and parked
-3. First ingest spike: serial → raw log → parser, against the GEN2 format
+1. **Look at the UI in a browser.** First real feedback on layout, density and the
+   sunlight treatment. Nothing else should be built until someone has seen it.
+2. **SQLite store** — decided in `wiki/decisions/stack.md`, deferred during the frontend
+   push. One flat table, one insert per packet. The only major piece of the pipeline
+   still missing.
+3. **`ISS-07` + `ISS-08` with the firmware member** — packet contract. Deferred to
+   unblock development, not resolved. A monotonic counter remains the highest-value
+   addition; without it packet loss stays undetectable.
 
 ## Blocked
 
-- `ISS-06` — competition requirements unknown, `wiki/source/competition/` is empty
-- `ISS-09` — `CANSAT_DATA` not recoverable; no real telemetry available for development
-- `ISS-02` — GEN2 ground unit firmware missing, so the uplink cannot be tested end to end
+- `ISS-06` — competition requirements unknown, `wiki/source/competition/` still empty
+- `ISS-09` — `CANSAT_DATA` not recovered; the mock is the only telemetry source
+- `ISS-02` — GEN2 ground unit firmware missing, so the uplink cannot be tested against
+  hardware
+
+## Waiting on Aiman
+
+Deletions, since all deletion is yours:
+
+- `frontend/src/lib/rocketModel.ts` — orphaned by the 3D revert. Currently excluded in
+  `tsconfig.json`; **remove that exclude block once the file is gone.**
+- Six redundant `.gitkeep` files — only `wiki/source/competition/` still needs one.

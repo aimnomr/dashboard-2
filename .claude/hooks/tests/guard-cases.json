@@ -1,0 +1,31 @@
+[
+  {"name": "git commit",           "expect": "BLOCK", "tool": "Bash",       "command": "git commit -m \"x\""},
+  {"name": "git push",             "expect": "BLOCK", "tool": "Bash",       "command": "git push origin main"},
+  {"name": "chained git push",     "expect": "BLOCK", "tool": "Bash",       "command": "npm test && git push"},
+  {"name": "git add",              "expect": "BLOCK", "tool": "Bash",       "command": "git add ."},
+  {"name": "git branch -D",        "expect": "BLOCK", "tool": "Bash",       "command": "git branch -D feature"},
+  {"name": "git reset --hard",     "expect": "BLOCK", "tool": "Bash",       "command": "git reset --hard HEAD"},
+  {"name": "git checkout",         "expect": "BLOCK", "tool": "Bash",       "command": "git checkout main"},
+
+  {"name": "delete posix",         "expect": "BLOCK", "tool": "Bash",       "command": "\u0072m -rf build/"},
+  {"name": "delete windows",       "expect": "BLOCK", "tool": "PowerShell", "command": "\u0052emove-Item .\\old.txt"},
+  {"name": "delete in block",      "expect": "BLOCK", "tool": "PowerShell", "command": "Get-ChildItem *.tmp | ForEach-Object { \u0052emove-Item $_ }"},
+  {"name": "delete piped",         "expect": "BLOCK", "tool": "PowerShell", "command": "gci | \u0052emove-Item -Force"},
+  {"name": "delete via del",       "expect": "BLOCK", "tool": "PowerShell", "command": "\u0064el src\\stale.ts"},
+
+  {"name": "git status",           "expect": "allow", "tool": "Bash",       "command": "git status --short"},
+  {"name": "git log",              "expect": "allow", "tool": "Bash",       "command": "git log --oneline -5"},
+  {"name": "git -C diff",          "expect": "allow", "tool": "Bash",       "command": "git -C D:/repo diff HEAD"},
+  {"name": "git branch -a",        "expect": "allow", "tool": "Bash",       "command": "git branch -a"},
+  {"name": "git check-ignore",     "expect": "allow", "tool": "Bash",       "command": "git check-ignore --no-index src/x.ts"},
+  {"name": "npm build",            "expect": "allow", "tool": "Bash",       "command": "npm run build"},
+
+  {"name": "prose git dq",         "expect": "allow", "tool": "PowerShell", "command": "Write-Output \"what git has vs disk\""},
+  {"name": "prose del dq",         "expect": "allow", "tool": "PowerShell", "command": "Write-Output \"how to \u0072m old files\""},
+  {"name": "prose git sq",         "expect": "allow", "tool": "PowerShell", "command": "Write-Output 'run git push yourself'"},
+  {"name": "grep for git push",    "expect": "allow", "tool": "Bash",       "command": "grep -r \"git push\" docs/"},
+  {"name": "heredoc prose",        "expect": "allow", "tool": "PowerShell", "command": "Write-Output @'\nyou may \u0072m this later\nand git commit\n'@"},
+
+  {"name": "real cmd + heredoc",   "expect": "BLOCK", "tool": "PowerShell", "command": "git commit -m @'\nmessage body\n'@"},
+  {"name": "real cmd + quoted arg","expect": "BLOCK", "tool": "PowerShell", "command": "git commit -m \"harmless words\""}
+]
