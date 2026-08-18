@@ -23,7 +23,7 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-07](#iss-07) | `CHUTE:` field is not numeric | 🟡 Deferred | Firmware member | — (worked around) |
 | [ISS-08](#iss-08) | No packet counter, timestamp, or checksum | 🟡 Deferred | Firmware member | Loss detection, true time axis |
 | [ISS-09](#iss-09) | Raw source files no longer present | 🔴 Open | Aiman | Test data availability |
-| [ISS-10](#iss-10) | Ground unit output buffer smaller than payload | 🔴 Open | Firmware member | Packet integrity |
+| [ISS-10](#iss-10) | Ground unit output buffer smaller than payload | 🟢 Resolved | — | — |
 | [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
 | [ISS-12](#iss-12) | Field laptop provisioning | 🔴 Open | Aiman | Launch day |
 
@@ -214,10 +214,26 @@ Node-RED files matter less now that they are documented.
 <a id="iss-10"></a>
 ## ISS-10 — Ground unit output buffer smaller than flight payload
 
-**Status** 🔴 Open · **Raised** 2026-08-18 · **Owner** Firmware member
+**Status** 🟢 Resolved · **Raised** 2026-08-18 · **Resolved** 2026-08-18
 
-**Problem.** The GEN2 flight unit builds its packet in a **180-byte** buffer. The ground unit
-re-emits it plus RSSI and SNR through a **160-byte** buffer:
+**Resolution.** Measured rather than assumed. A full-width GEN2 packet fits both buffers:
+
+| | flight payload (buf 180) | + RSSI/SNR (buf 160) | ground headroom |
+|---|---|---|---|
+| Typical | 97 | 111 | 49 chars |
+| Worst case | 118 | 132 | **28 chars** |
+
+Worst case assumes a negative sign on every float, three-digit longitude, altitude below
+launch, and full-scale IMU readings — wider than any real flight produces. Truncation cannot
+occur with the GEN2 format as specified.
+
+⚠️ **The headroom is not unlimited.** Resolving `ISS-08` would consume most of it: a packet
+counter costs roughly 11 characters and a CRC16 suffix about 5, leaving around 12. Re-measure
+before adding fields, and raise the ground unit buffer at the same time.
+
+**Original problem, retained for context.** The GEN2 flight unit builds its packet in a
+**180-byte** buffer. The ground unit re-emits it plus RSSI and SNR through a **160-byte**
+buffer:
 
 ```c
 char buf[180];     // MRC_FlightUnit_V7.ino  — payload
