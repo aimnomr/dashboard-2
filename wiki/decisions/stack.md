@@ -7,8 +7,11 @@ Decided 2026-08-18.
 | Backend | **Python** — FastAPI + uvicorn, `pyserial` |
 | Transport to UI | **WebSocket**, plus REST for history and commands |
 | Frontend | **React + Vite** |
-| Charts | **uPlot** (proposed) |
-| Map | **Leaflet** with offline tiles (proposed) — see `ISS-11` |
+| Charts | **uPlot** (canvas) |
+| Ground track | **No library** — raw canvas 2D XY trace, sidestepping `ISS-11` |
+| Attitude | **Three.js** — 3D vehicle pose |
+| Sparklines | **No library** — hand-rolled SVG path |
+| Tests | **pytest** (backend) · **vitest** (frontend) |
 | Raw log | append-only text file, written before parsing |
 | Parsed store | **SQLite, single flat table** |
 | Environment | `venv` + `requirements.txt` |

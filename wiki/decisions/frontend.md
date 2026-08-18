@@ -61,7 +61,7 @@ All nine are in scope for the first version.
 | EJECT control | uplink | Armed state required — see below |
 | Ground track | `lat`, `lng` | Plain XY trace, launch point marked, scale bar. No basemap (`ISS-11`) |
 | GPS readout | `lat`, `lng`, `sat` | Numeric; satellite count doubles as a fix-quality indicator |
-| Attitude | `ax…gz` | 2D artificial horizon plus gyro rates. Distinguishes tumble from stable descent |
+| Attitude | `ax…gz` | **3D vehicle pose (Three.js)** plus gyro rates. See below |
 | Speed | `spd` | Descent rate sanity check |
 | Environment | `temp`, `hum`, `pres` | Secondary. `pres` cross-checks `alt` |
 | Raw feed | raw lines | Scrolling last N lines, malformed ones marked. Unglamorous, invaluable in the field |
@@ -75,6 +75,44 @@ would be acted on.
 
 A stale link must be **loud**. A dashboard that silently stops updating looks identical to a calm
 one, and that is the most dangerous failure mode on the screen.
+
+### Attitude is 3D, and only two of its three axes are real
+
+A 2D artificial horizon is the wrong instrument for a CanSat. It was designed for
+aircraft, which live in a narrow band of pitch and roll; a free-falling body can be at
+any orientation, and the 2D horizon degenerates exactly when things get interesting —
+inverted reads ambiguously, tumbling reads as noise. A 3D model shows "upside down and
+spinning" instantly.
+
+**The MPU6050 provides two degrees of freedom, not three.** The accelerometer measures
+the gravity vector in body frame, which fully determines *tilt*. It cannot determine
+rotation *about* the gravity vector, and there is no magnetometer, so there is no
+heading reference at all.
+
+How that is handled:
+
+- **Tilt** comes from the accelerometer and is exact — a minimal rotation carrying the
+  measured up-direction onto world up.
+- **Rotation about vertical** is integrated from the gyro's z rate. It is **relative and
+  it drifts**, and the panel says so in plain words. Integration is capped at 2 s per
+  step, so a dropout or a backgrounded tab cannot whip the model through dozens of
+  revolutions and read as real motion.
+- **The existing reliability warning is unchanged.** Under boost, at apogee, or while
+  tumbling the model desaturates and states the reason, because an accelerometer under
+  thrust is measuring thrust and at apogee there is no gravity vector to measure.
+
+These are two separate claims — whether the tilt means anything, and how approximate the
+rotation is — and the UI keeps them separate rather than merging them into one vague
+caveat.
+
+**Rendering is driven by incoming telemetry**, once per frame at 1 Hz, not by a
+continuous animation loop. A dial redrawing 60 times a second to show data that changes
+once a second would heat and drain a laptop sitting in a field.
+
+The placeholder vehicle is built procedurally — nothing binary to inspect, no asset to
+bundle. It carries a contrasting band and one differently-coloured fin so rotation is
+actually visible; a featureless cylinder would spin invisibly. The real model swaps in
+via a loader call plus a scale and axis fix.
 
 ### EJECT is not a display control
 

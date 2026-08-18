@@ -34,9 +34,18 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
-.canvas-host > canvas { display: block; }
+/* Absolutely positioned so the canvas cannot contribute to its host's height.
+ * Sizing the canvas from the host while the host is sized by the canvas is a feedback
+ * loop: every ResizeObserver pass makes the element slightly larger and it walks out
+ * of the panel. Taking the canvas out of flow breaks the loop. */
+.canvas-host > canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
 
 .canvas-host__badge {
   position: absolute;
@@ -56,12 +65,32 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr auto;
+  /* minmax(0, 1fr), not 1fr: a plain fr track has an automatic minimum of its content
+   * size, so the dial could push the column wider than the panel instead of shrinking. */
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--gap);
-  align-items: center;
+  align-items: stretch;
 }
 
-.attitude__dial { aspect-ratio: 1; min-height: 0; }
+/* No aspect-ratio. Forcing a square box meant height followed width, and in a wide
+ * short panel that square was taller than the panel body. The dial fills whatever cell
+ * it gets and the drawing centres a circle at min(width, height), so a non-square cell
+ * is harmless. */
+.attitude__dial {
+  min-height: 0;
+  min-width: 0;
+}
+
+.attitude__nogl {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--size-label);
+  color: var(--text-faint);
+  background: var(--panel-bg-sunk);
+  border-radius: 4px;
+}
 
 .attitude__readout {
   display: grid;
