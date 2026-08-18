@@ -52,6 +52,9 @@ bool     uplinkHeard    = false;    /* has the ground station EVER been heard? *
  * flight, and that was seen on real hardware. */
 float    gyroBiasWorst  = 0;
 
+/* Cycles that failed to finish inside CYCLE_PERIOD_MS. Should stay at 0. */
+uint32_t cycleOverruns  = 0;
+
 char     packetBuf[PACKET_BUF];
 
 static uint32_t nextCycleAt = 0;
@@ -145,7 +148,30 @@ void loop() {
   /* ---- 5. DISPLAY -------------------------------------------------------- */
   if (seqNumber % OLED_EVERY_N == 0) displayTelemetry(tm);
 
-  /* ---- 6. HOLD ----------------------------------------------------------- */
+  /* ---- 6. HOLD -----------------------------------------------------------
+   * Report overruns rather than absorbing them silently: the budget says this
+   * cycle should finish in ~650 ms of 1000, and the SD write is the term least
+   * possible to predict from a datasheet. If this line appears on the bench,
+   * the margin is not what the plan assumed.
+   */
+  int32_t remaining = (int32_t)(nextCycleAt - millis());
+  if (remaining < 0) {
+    cycleOverruns++;
+    Serial.print("[FLT] cycle overran by ");
+    Serial.print(-remaining);
+    Serial.print(" ms (");
+    Serial.print(cycleOverruns);
+    Serial.println(" total)");
+
+    /* Fallen more than a whole period behind: resync instead of running cycles
+     * back to back to catch up. A burst of packets is worse than a late one —
+     * it breaks cadence in the other direction and floods the channel. */
+    if (remaining < -(int32_t)CYCLE_PERIOD_MS) {
+      nextCycleAt = millis();
+      Serial.println("[FLT] cadence resynchronised");
+    }
+  }
+
   holdUntil(nextCycleAt);
 }
 

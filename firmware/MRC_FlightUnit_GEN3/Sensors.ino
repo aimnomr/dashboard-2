@@ -135,6 +135,23 @@ void sensorsCalibrate() {
 
 /* ---- GPS ------------------------------------------------------------------- */
 
+/* Is the receiver talking to us at all?
+ *
+ * "No characters" and "characters but no fix" are completely different faults
+ * and must never look the same:
+ *
+ *   chars == 0            -> wiring or baud. The module is not reaching us.
+ *   chars > 0, fix == 0   -> wiring is fine. Antenna, sky view, or cold start.
+ *   failed checksums high -> data is arriving corrupted: baud mismatch or a
+ *                            bad ground.
+ *
+ * Cheap to expose and it removes an entire afternoon of guessing.
+ */
+bool gpsHasData()        { return gps.charsProcessed() > 0; }
+uint32_t gpsChars()      { return gps.charsProcessed(); }
+uint32_t gpsFixSentences() { return gps.sentencesWithFix(); }
+uint32_t gpsBadChecksums() { return gps.failedChecksum(); }
+
 /* Drain the UART into the parser. Must be called often — at 9600 baud the FIFO
  * fills in roughly 130 ms. */
 void gpsFeed() {

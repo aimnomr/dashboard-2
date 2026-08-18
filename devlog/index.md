@@ -23,3 +23,5 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-18 · 018 · GEN3 plan, packet format, and link analysis
 - 2026-08-19 · 019 · Ground station GEN3 draft
 - 2026-08-19 · 020 · Flight unit GEN3, and the OLED as a pre-launch instrument
+- 2026-08-19 · 021 · Cycle overrun reporting and resync
+- 2026-08-19 · 022 · First GEN3 hardware packets, and GPS diagnostics

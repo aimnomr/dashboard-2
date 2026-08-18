@@ -37,9 +37,14 @@ void chuteFire() {
 
 #if CHUTE_USE_SERVO
   chuteServo.write(CHUTE_SERVO_RELEASE_DEG);
-  /* CHUTE_HOLD_MS is spent inside the cycle's slack, after the listen window and
-   * before the transmit. At the default 400 ms window there is room; if the
-   * servo needs longer, shorten LISTEN_WINDOW_MS rather than the period. */
+  /* ⚠ This delay happens once, on the cycle the command arrives, and it WILL
+   * overrun that cycle: 1000 ms of hold on top of ~650 ms of work. The scheduler
+   * reports the overrun and resynchronises rather than firing a catch-up burst,
+   * so the cost is one late packet at the moment of deployment.
+   *
+   * Judged acceptable — the release is more important than that packet — but it
+   * is a knowing violation of the 1 Hz rule, not an oversight. If it matters,
+   * drive the servo without blocking and let it travel across the next cycle. */
   delay(CHUTE_HOLD_MS);
 #else
   digitalWrite(CHUTE_PIN, HIGH);

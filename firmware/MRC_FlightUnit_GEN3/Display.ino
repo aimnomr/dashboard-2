@@ -57,8 +57,14 @@ void displayTelemetry(const Telemetry &t) {
   float g = sqrtf(t.ax * t.ax + t.ay * t.ay + t.az * t.az);
   snprintf(l2, sizeof(l2), "IMU %.2fg  bias%4.1f", g, gyroBiasWorst);
 
-  /* 4 — fix and logging, on one line. */
-  if (t.sat > 0 && (t.lat != 0.0 || t.lng != 0.0)) {
+  /* 4 — fix and logging, on one line.
+   *
+   * "NO DATA" and "no fix" are different faults and must not look alike. No data
+   * means the module is not reaching the ESP32 at all — wiring or baud — and no
+   * amount of standing outside will fix it. */
+  if (!gpsHasData()) {
+    snprintf(l3, sizeof(l3), "GPS NO DATA  %s", sdReady ? "SD ok" : "SD --");
+  } else if (t.sat > 0 && (t.lat != 0.0 || t.lng != 0.0)) {
     snprintf(l3, sizeof(l3), "GPS %2dsat %s", t.sat, sdReady ? "SD ok" : "SD --");
   } else {
     snprintf(l3, sizeof(l3), "GPS no fix(%d) %s", t.sat, sdReady ? "SD ok" : "SD --");

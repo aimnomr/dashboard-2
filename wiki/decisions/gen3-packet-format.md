@@ -171,6 +171,34 @@ Six bytes saved with **no information lost**.
 > described here as meaningfully better than `%.5f`. That overvalued it. At ~2.5 m
 > receiver accuracy, 1.1 m quantisation is already well below the noise floor.
 
+## SD card log
+
+Same as GEN1: auto-incrementing `/FLIGHT01.CSV` … `/FLIGHT99.CSV`, first unused name
+wins, opened and closed on every write.
+
+**Contents differ from GEN1.** The card holds complete framed packets — `$MRC` marker and
+`*CRC16` included — rather than bare CSV payloads, so it is a byte-faithful record of what
+was transmitted and replays through the same parser as the downlink. Two `#` comment lines
+head the file instead of a CSV header row.
+
+The `.CSV` extension is kept for spreadsheet and pandas compatibility. The cost is that
+the first column reads `$MRC` and the chute column carries the checksum glued to it
+(`0*3E1A`) — a small cleaning step, accepted deliberately.
+
+Verified recipe:
+
+```python
+COLS = ["team","seq","ms","temp","hum","pres","alt","ax","ay","az",
+        "gx","gy","gz","lat","lng","spd","sat","chute"]
+
+df = pd.read_csv("FLIGHT01.CSV", comment="#", names=COLS, header=None)
+df["team"] = df["team"].str.lstrip("$")
+df[["chute","crc"]] = df["chute"].astype(str).str.split("*", expand=True)
+df["chute"] = df["chute"].astype(int)
+```
+
+Excel: open directly, then split the last column on `*`.
+
 ## Buffers — 256 bytes on both units
 
 Worst case is 131 characters on the vehicle and 145 at the ground station. **256** is the
