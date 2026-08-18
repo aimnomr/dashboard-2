@@ -1,32 +1,42 @@
-# Firmware Versions in the Source Set
+# Firmware Generations
 
-Three `.ino` files, from **two different generations** of the project. They are not compatible
-with each other.
+Three `.ino` files across **two generations**. The generations differ in **communication
+direction**, not in hardware — both share substantially the same component list.
 
-| File | Role | Board | Sensors | Packet | Two-way |
-|---|---|---|---|---|---|
-| `13.CANSAT_919MHZ.ino` | Flight unit | Heltec V3 | **Real** — BME280, MPU6050, NEO-6M, SD | 14 fields | ❌ TX only |
-| `MRC_FlightUnit_V7.ino` | Flight unit | Heltec V4 | **None — simulated** | 15 fields | ✅ listens for `EJECT` |
-| `14.GROUND_919MHz.ino` | Ground unit | Heltec V3 | — | appends RSSI/SNR | ❌ RX only |
+| | GEN1 | GEN2 |
+|---|---|---|
+| Comms | **One-way** — downlink only | **Two-way** — downlink + uplink |
+| Purpose | baseline telemetry | adds redundancy: ground-initiated eject |
+| Flight unit | `13.CANSAT_919MHZ.ino` | `MRC_FlightUnit_V7.ino` |
+| Ground unit | `14.GROUND_919MHz.ino` | **missing from source set** — see `ISS-02` |
+| Packet | 14 fields (16 at PC) | 15 fields (17 at PC) — **canonical** |
+| Chute control | none | `EJECT` uplink → GPIO47 |
 
-## Generation 1 — real sensors, one-way
+**GEN2's packet is the format the dashboard targets.** It is derived directly from GEN1 with
+the chute flag appended and precision raised. See `packet-format.md`.
 
-`13.CANSAT_919MHZ.ino` + `14.GROUND_919MHz.ino` + `serial_to_mqtt_V3.py`.
-This chain is internally consistent: 14 fields + 2 appended = the 16 the bridge expects.
+## Why two-way exists
 
-## Generation 2 — simulated, two-way
+The uplink is a **redundancy path**. It lets the ground station command parachute deployment
+rather than relying solely on the flight unit's own logic — a backup for the case where onboard
+deployment does not fire.
 
-`MRC_FlightUnit_V7.ino` + Node-RED dual-debug flow. Adds the chute/EJECT capability and a 15th
-field. **The matching ground unit firmware is missing** from the source set — the flowchart
-describes a ground unit that reads serial and calls `fireEject()`, but `14.GROUND_919MHz.ino`
-does neither.
+## Component list
 
-## What this means
+Both generations use the same sensor and peripheral set — see `../hardware/flight-unit.md`.
+The board is a Heltec WiFi LoRa 32; the V3/V4 discrepancy across the source files is a naming
+error only, not a hardware difference (`ISS-03`, resolved).
 
-- The build with **real sensors has no parachute deployment**. The build with **parachute
-  deployment has no real sensors**. Neither file is a flight-ready article on its own.
-- Merging them is firmware work owned by another team member, not a dashboard task — but the
-  dashboard's packet contract depends on which way it lands.
+## ⚠️ `MRC_FlightUnit_V7.ino` as supplied contains no sensor code
+
+The file is a **bench-test build**: it generates a synthetic 78-second flight in software rather
+than reading BME280/MPU6050/GPS. It exists to exercise the two-way path and the dashboard
+without flying anything. The sensor reads from `13.CANSAT_919MHZ.ino` still need merging in for
+a flight article.
+
+For dashboard purposes this is a feature, not a problem — it is a hardware-free packet source
+producing correctly-formatted GEN2 telemetry on demand. Its simulated flight profile is
+documented in `lora-link-and-protocol.md`.
 
 ## `MRC_FlightUnit_V7.ino` version history (from its own header)
 
@@ -38,11 +48,13 @@ does neither.
 
 V1–V6 are not in the source set.
 
-## Notable firmware behaviours worth knowing downstream
+## Firmware behaviours that affect the dashboard
 
-- **Halt-on-error.** BME280, MPU6050 and LoRa init failures all enter `while(1) delay(1000)` —
-  the unit stops dead. Only SD card failure is non-fatal.
-- **Blocking receive on the ground unit.** `radio.receive()` blocks until a packet or timeout,
-  which is why a `[GCS] Timeout - no packet` line appears between telemetry lines.
-- **Screen rotation costs time.** The flight unit re-reads BME280 and MPU6050 inside its display
-  functions, separately from the transmit path, and ends each loop with `delay(200)`.
+- **Halt-on-error.** BME280, MPU6050 and LoRa init failures enter `while(1) delay(1000)` — the
+  unit stops dead and the downlink goes silent. Only SD card failure is non-fatal. A silent link
+  therefore has several distinct causes the dashboard cannot tell apart.
+- **`[GCS]`-prefixed status lines** are interleaved with telemetry on the serial stream and must
+  be filtered, not parsed. Includes `[GCS] Timeout - no packet` on every receive timeout.
+- **Blocking receive** on the GEN1 ground unit means timing between lines is irregular.
+- **GEN2 halts after 78 s** — the simulator stops transmitting at the end of its phase sequence
+  and displays "FLIGHT COMPLETE". Expect the feed to stop, not to loop.

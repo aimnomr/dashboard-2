@@ -6,11 +6,14 @@ Source: `13.CANSAT_919MHZ.ino`, `Pins_Assignment.md`, `MRC_FlightUnit_V7.ino`
 
 **Heltec WiFi LoRa 32** — ESP32-S3 with on-board SX1262 LoRa and SSD1306 OLED.
 
-⚠️ **Board revision is inconsistent across sources.** `Pins_Assignment.md` and
-`13.CANSAT_919MHZ.ino` describe a **V3**; `MRC_FlightUnit_V7.ino` header says **V4**
-and notes "If you're on V4, double-check your pinout diagram". Needs confirming.
+The V3 / V4 labelling differs between source files (`Pins_Assignment.md` and
+`13.CANSAT_919MHZ.ino` say V3; `MRC_FlightUnit_V7.ino` says V4). This is a **naming error in
+the files, not a hardware difference** — resolved, `ISS-03`. The LoRa pinout is identical
+either way.
 
 ## Sensors
+
+Shared by both GEN1 and GEN2 — the generations differ in comms direction, not components.
 
 | Component | Interface | Address / Port | Config |
 |---|---|---|---|

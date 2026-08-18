@@ -14,8 +14,12 @@ What each raw file in `wiki/source/` actually is. Originals left in place, unmod
 | `MRC_TwoWay_Flowchart.html` | Rendered flowchart documenting the intended two-way comms sequence end to end. | `firmware/lora-link-and-protocol.md` |
 | `CANSAT_DATA` | **SQLite database** (no file extension). 5,481 telemetry readings logged 2026-05-03 → 2026-06-16. | `previous-system/telemetry-database.md` |
 
-## Note on organisation
+## Status of the raw files
 
-The raw files were left at `wiki/source/` root rather than moved into the subdirectories, because
-moving them removes them from their original path and all deletion/relocation is the user's action.
-Proposed moves are listed at the end of the session notes if you want them tidied.
+The raw files were **removed from `wiki/source/` root on 2026-08-18** and are not present
+elsewhere in the repo or under `D:\MRCC`. They were never committed to git, so they are not
+recoverable from history.
+
+The extracted documents listed above are now the only record of their contents here. See
+`ISS-09` — the loss that matters is `CANSAT_DATA`, whose 5,481 rows of real telemetry are not
+reproducible from documentation.
