@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:/MRCC/dashboard-2/.claude/hooks/guard-destructive.ps1\""
+          }
+        ]
+      }
+    ]
+  }
+}
