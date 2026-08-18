@@ -1,0 +1,8 @@
+# Claude Code — personal, machine-specific settings.
+# .claude/settings.json and .claude/hooks/ ARE tracked: they carry the project's guard hook.
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

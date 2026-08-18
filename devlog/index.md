@@ -1,0 +1,10 @@
+# Devlog Index
+
+One line per entry, appended in order. Entries are immutable — see
+`wiki/decisions/project-conventions.md`.
+
+- 2026-08-18 · 001 · Establish working rules and enforcement hooks
+- 2026-08-18 · 002 · Create wiki and devlog directory structure
+- 2026-08-18 · 003 · Extract source material into the wiki
+- 2026-08-18 · 004 · Adopt GEN2 packet format, add issue tracker
+- 2026-08-18 · 005 · Set project conventions
