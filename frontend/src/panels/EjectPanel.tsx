@@ -17,6 +17,7 @@ const CONFIRM_TIMEOUT_MS = 6_000
 export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProps) {
   const [armedAt, setArmedAt] = useState<number | null>(null)
   const [sentAt, setSentAt] = useState<number | null>(null)
+  const [pingAt, setPingAt] = useState<number | null>(null)
 
   const chute = latest?.frame.chute ?? null
   const deployed = chute === 1
@@ -36,11 +37,19 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
     setArmedAt(null)
   }
 
+  const ping = () => {
+    sendCommand('ping')
+    setPingAt(Date.now())
+  }
+
   const awaitingConfirmation = sentAt !== null && !deployed
   const confirmationOverdue = awaitingConfirmation && now - sentAt > CONFIRM_TIMEOUT_MS
+  const pingAck = lastAck?.command === 'PING' ? lastAck : null
 
   return (
-    <Panel title="Eject" area="eject">
+    // Titled for the path, not for the one dangerous command on it: this panel now
+    // carries both uplink commands the ground station accepts.
+    <Panel title="Uplink" area="eject">
       {deployed ? (
         <div className="notice notice--alert" style={{ fontWeight: 800 }}>
           <span aria-hidden="true">◆</span> Chute deployed
@@ -102,6 +111,25 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
           telemetry.
         </p>
       )}
+
+      {/* The only way to test the uplink without deploying a parachute to test it.
+          Deliberately not arm-guarded: a control that fires nothing does not need a
+          guard, and guarding it would discourage the pre-launch check it exists for. */}
+      <div className="uplink__test">
+        <button type="button" className="btn btn--small" onClick={ping}>
+          Ping
+        </button>
+        {pingAt !== null && (
+          <span className={`chip chip--${pingAck?.sent === false ? 'alert' : 'ok'}`}>
+            {pingAck?.sent === false ? '■ Not sent' : '● Sent'}
+            {pingAck?.error ? ` — ${pingAck.error}` : ''}
+          </span>
+        )}
+      </div>
+      <p className="panel__footnote">
+        Ping fires nothing. Confirmation is on the vehicle's OLED — its UL counter
+        resets — never here.
+      </p>
     </Panel>
   )
 }

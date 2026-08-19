@@ -16,9 +16,28 @@ from .sources.base import TelemetrySource
 
 log = logging.getLogger(__name__)
 
-#: Uplink commands the server will forward. Deliberately an allowlist — the uplink
-#: fires a parachute, so it is not a passthrough for arbitrary strings.
-ALLOWED_COMMANDS = frozenset({"EJECT"})
+#: UI command name -> the exact bytes the ground station compares against.
+#:
+#: Both an allowlist and a translation. Allowlist because the uplink fires a parachute
+#: and must never be a passthrough for arbitrary strings; translation because the wire
+#: protocol is defined by the firmware, in
+#: `firmware/MRC_GroundStation_GEN3/Config.h` (`CMD_EJECT`, `CMD_PING`), and the
+#: dashboard does not get to invent it.
+#:
+#: This mapping did not exist until 2026-08-19, and its absence was a real defect: the
+#: dashboard sent "EJECT" while the ground station's `handleCommand()` compares against
+#: "CMD:EJECT", so every eject was answered with `[GCS] unknown command`. It survived
+#: because MockSource accepted the dashboard's spelling — the mock agreed with the
+#: dashboard instead of with the firmware, so both sides of every test shared the same
+#: wrong assumption. If this mapping changes, `mock_source.py` changes with it.
+UPLINK_COMMANDS: dict[str, str] = {
+    "EJECT": "CMD:EJECT",
+    # Fires nothing. Tests the uplink and nothing else, which is the only way to prove
+    # the path works without deploying a parachute to prove it.
+    "PING": "CMD:PING",
+}
+
+ALLOWED_COMMANDS = frozenset(UPLINK_COMMANDS)
 
 
 def create_app(hub: Hub, source: TelemetrySource, pipeline: Pipeline,
@@ -92,8 +111,9 @@ async def _handle_client_message(websocket: WebSocket, message: dict,
         })
         return
 
-    sent = await source.send_command(command)
-    log.warning("uplink command %s -> transmitted=%s", command, sent)
+    wire = UPLINK_COMMANDS[command]
+    sent = await source.send_command(wire)
+    log.warning("uplink %s (wire %r) -> transmitted=%s", command, wire, sent)
 
     await websocket.send_json({
         "type": "command_ack",

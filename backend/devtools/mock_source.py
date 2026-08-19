@@ -43,6 +43,12 @@ PHASES: tuple[tuple[str, int], ...] = (
 BASE_LAT = 3.07830
 BASE_LNG = 101.71220
 
+#: The uplink wire protocol, mirroring `CMD_EJECT` and `CMD_PING` in
+#: `firmware/MRC_GroundStation_GEN3/Config.h`. The mock must reject anything the real
+#: ground station would reject — see `send_command` below.
+CMD_EJECT = "CMD:EJECT"
+CMD_PING = "CMD:PING"
+
 #: Wire format, GEN2. The ground unit appends ",{rssi:.1f},{snr:.2f}" to this.
 _PACKET_FMT = (
     "{temp:.2f},{hum:.1f},{pres:.2f},{alt:.2f},"
@@ -206,10 +212,32 @@ class MockSource(TelemetrySource):
         return ",".join(parts)
 
     async def send_command(self, command: str) -> bool:
-        if command.upper() == "EJECT":
+        """Accept exactly what the real ground station accepts, and nothing else.
+
+        This used to match on "EJECT", which is what the dashboard happened to send —
+        so the mock agreed with the dashboard rather than with the firmware, and the two
+        of them validated each other into a protocol the hardware does not speak. Every
+        eject would have been answered with `[GCS] unknown command` at the pad.
+
+        A mock that is lenient about the protocol is worse than no mock: it converts a
+        loud failure into a silent one, and moves the discovery to launch day. These
+        strings mirror `CMD_EJECT` and `CMD_PING` in
+        `firmware/MRC_GroundStation_GEN3/Config.h` and must be changed together.
+        """
+        if command == CMD_EJECT:
             self._chute_deployed = True
-            log.warning("MOCK: EJECT received — chute flag now 1")
+            log.warning("MOCK: %s received — chute flag now 1", CMD_EJECT)
             return True
+
+        if command == CMD_PING:
+            # The real ground station transmits and prints; there is nothing on the
+            # downlink to simulate, because a ping is confirmed on the vehicle's OLED.
+            log.warning("MOCK: %s received — no downlink effect, as on hardware",
+                        CMD_PING)
+            return True
+
+        log.error("MOCK: unknown command %r — the ground station would reject this too",
+                  command)
         return False
 
     async def aclose(self) -> None:

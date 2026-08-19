@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Panel } from '../components/Panel'
+import { PoseView } from '../components/PoseView'
 import { computeAttitude, integrateYaw } from '../lib/attitude'
 import type { FrameRecord } from '../types/telemetry'
+
+type Mode = 'model' | 'horizon'
 
 interface AttitudePanelProps {
   latest: FrameRecord | null
@@ -12,6 +15,10 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const attitude = latest ? computeAttitude(latest.frame) : null
   const yaw = useMemo(() => integrateYaw(history), [history])
+  // The model reads better for a body that can be at any orientation; the horizon is
+  // the familiar instrument. Both are the same numbers, so this is a preference and
+  // deliberately not persisted.
+  const [mode, setMode] = useState<Mode>('model')
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -99,18 +106,41 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
     const observer = new ResizeObserver(draw)
     observer.observe(parent)
     return () => observer.disconnect()
-  }, [attitude])
+    // `mode` matters: the canvas is unmounted in model mode, so switching back needs a
+    // redraw rather than waiting up to a second for the next frame to arrive.
+  }, [attitude, mode])
 
   return (
     <Panel
       title="Attitude"
       area="attitude"
-      note={attitude ? `${attitude.magnitude.toFixed(2)} g` : undefined}
+      note={
+        <span className="attitude__note">
+          <button
+            type="button"
+            className="attitude__mode"
+            onClick={() => setMode(mode === 'model' ? 'horizon' : 'model')}
+            title="Same numbers, different representation"
+          >
+            {mode === 'model' ? 'Model' : 'Horizon'}
+          </button>
+          {attitude ? `${attitude.magnitude.toFixed(2)} g` : '—'}
+        </span>
+      }
     >
       <div className="attitude">
-        <div className="canvas-host attitude__dial">
-          <canvas ref={canvasRef} />
-        </div>
+        {mode === 'model' ? (
+          <PoseView
+            pitch={attitude?.pitch ?? null}
+            roll={attitude?.roll ?? null}
+            yaw={yaw.yaw}
+            reliable={attitude?.reliable ?? true}
+          />
+        ) : (
+          <div className="canvas-host attitude__dial">
+            <canvas ref={canvasRef} />
+          </div>
+        )}
         <div className="attitude__readout">
           <div>
             <span className="label">Pitch</span>
@@ -156,7 +186,7 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
         <div className="panel__footnote">
           {/* GEN1/GEN2 carry no clock, so there is nothing to integrate against. Saying
               so beats an empty field the operator has to guess about. */}
-          no yaw — this generation carries no vehicle clock
+          no yaw — {yaw.reason}
         </div>
       )}
 

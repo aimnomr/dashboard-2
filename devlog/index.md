@@ -35,3 +35,10 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 030 · Channels view, three-axis IMU, and integrated yaw
 - 2026-08-19 · 031 · Reconcile ISS-08 and ISS-16, and correct frontend.md
 - 2026-08-19 · 032 · linkstats.py — real packet loss
+- 2026-08-19 · 033 · Uplink protocol fix — EJECT never worked
+- 2026-08-19 · 034 · Pre-launch checklist
+- 2026-08-19 · 035 · 3D pose model, on canvas
+- 2026-08-19 · 036 · Telemetry stays at 1 Hz
+- 2026-08-19 · 037 · Uplink confirmation is display-only, and the OLED is dead
+- 2026-08-19 · 038 · Pose model rendered on its side
+- 2026-08-19 · 039 · EJECT reaches the ground station but never the vehicle
