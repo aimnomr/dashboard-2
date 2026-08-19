@@ -30,6 +30,23 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0, OLED_RST, OLED_SCL, OLED_SDA);
 TwoWire        I2C_SENS = TwoWire(1);
 Adafruit_BME280 bme;
 TinyGPSPlus     gps;
+
+/* The module's own verdict on its fix — GGA field 6: 0 invalid, 1 GPS, 2 DGPS.
+ * TinyGPSPlus exposes no accessor for it, so it is read as a custom term.
+ *
+ * Declared here rather than in Sensors.ino on purpose: TinyGPSCustom's constructor
+ * registers itself with `gps`, so `gps` must already be constructed. The Arduino
+ * build concatenates the main sketch first, and keeping these adjacent to it makes
+ * that dependency visible instead of load-bearing and invisible.
+ *
+ * Both talkers are registered because which one arrives is a property of the
+ * hardware: a GPS-only NEO-6M emits $GPGGA, a multi-constellation module $GNGGA. */
+TinyGPSCustom   ggaQualityGp(gps, "GPGGA", 6);
+TinyGPSCustom   ggaQualityGn(gps, "GNGGA", 6);
+
+/* HDOP — GGA field 8. The accuracy figure the satellite count only approximates. */
+TinyGPSCustom   ggaHdopGp(gps, "GPGGA", 8);
+TinyGPSCustom   ggaHdopGn(gps, "GNGGA", 8);
 HardwareSerial  GPSSerial(1);
 SPIClass        sdSPI(HSPI);
 
@@ -128,7 +145,12 @@ void loop() {
 
   /* ---- 3. TRANSMIT ------------------------------------------------------- */
   seqNumber++;
-  packetBuild(packetBuf, sizeof(packetBuf), tm, seqNumber, millis(), chuteCommands);
+  /* `ul` is TOTAL uplink commands received — pings plus ejects. One number above
+   * zero is proof the two-way link has ever worked, which is the question that
+   * matters; pings alone are recoverable as ul - chute. Until now this lived only
+   * on the OLED, invisible once the unit is sealed. See devlog 037 and 048. */
+  packetBuild(packetBuf, sizeof(packetBuf), tm, seqNumber, millis(),
+              chuteCommands, pingCount + chuteCommands);
 
   int txState = radio.transmit(packetBuf);
 

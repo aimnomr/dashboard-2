@@ -20,6 +20,9 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
   const [pingAt, setPingAt] = useState<number | null>(null)
 
   const chute = latest?.frame.chute ?? null
+  /* Total uplink commands the vehicle reports receiving. GEN3.1 only — null on older
+     firmware, which is NOT the same as zero and must not be shown as a count. */
+  const ul = latest?.frame.ul ?? null
   const deployed = chute === 1
 
   useEffect(() => {
@@ -126,10 +129,28 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
           </span>
         )}
       </div>
-      <p className="panel__footnote">
-        Ping fires nothing. Confirmation is on the vehicle's OLED — its UL counter
-        resets — never here.
-      </p>
+      {/* The answer to the question devlogs 037 to 044 were all argued without.
+          Until GEN3.1 this number existed only on the vehicle's OLED, which cannot be
+          seen once the CanSat is sealed and was dead on the unit that mattered. */}
+      {ul !== null ? (
+        <div className={`notice notice--${ul > 0 ? 'ok' : 'warn'}`}>
+          <span aria-hidden="true">{ul > 0 ? '●' : '▲'}</span>{' '}
+          {ul > 0
+            ? `Uplink confirmed — vehicle has received ${ul} command${ul === 1 ? '' : 's'}`
+            : 'Uplink unproven — the vehicle has received nothing'}
+        </div>
+      ) : (
+        <p className="panel__footnote">
+          Ping fires nothing, and this firmware reports no uplink counter. Confirmation is
+          on the vehicle's OLED, or its USB serial at 115200 — never here.
+        </p>
+      )}
+      {ul !== null && (
+        <p className="panel__footnote">
+          Counts pings and ejects together. Non-zero proves the two-way link has worked;
+          it does not prove the parachute opened, which nothing on board can confirm.
+        </p>
+      )}
     </Panel>
   )
 }

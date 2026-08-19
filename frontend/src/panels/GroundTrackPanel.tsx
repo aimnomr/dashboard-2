@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Panel } from '../components/Panel'
-import { hasFix, niceScale, toLocal } from '../lib/geo'
+import { hasLiveFix, niceScale, toLocal } from '../lib/geo'
 import type { FrameRecord } from '../types/telemetry'
 
 interface GroundTrackPanelProps {
@@ -20,7 +20,10 @@ export function GroundTrackPanel({ history, latest }: GroundTrackPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const points = useMemo(() => {
-    const fixes = history.filter((r) => hasFix(r.frame))
+    // hasLiveFix, not hasFix: a stale position repeats the same coordinate every
+    // second, which would pin the trace's last point somewhere the vehicle has left
+    // and quietly bias the drift figure toward it.
+    const fixes = history.filter((r) => hasLiveFix(r.frame))
     if (fixes.length === 0) return []
     const origin = fixes[0].frame
     return fixes.map((r) => toLocal(r.frame, origin))
@@ -134,7 +137,7 @@ export function GroundTrackPanel({ history, latest }: GroundTrackPanelProps) {
     return () => observer.disconnect()
   }, [points])
 
-  const fixed = latest ? hasFix(latest.frame) : false
+  const fixed = latest ? hasLiveFix(latest.frame) : false
 
   return (
     <Panel

@@ -48,3 +48,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 043 · The GEN2 ground unit was found, and it solved the uplink problem already
 - 2026-08-19 · 044 · Uplink timing fixed at both ends
 - 2026-08-19 · 045 · The attitude warning flickered, and the camera was below the horizon
+- 2026-08-20 · 046 · The vehicle kept transmitting a fix it had already lost
+- 2026-08-20 · 047 · The receiver's own fix verdict is now read
+- 2026-08-20 · 048 · GEN3.1 — `ul`, `hdop` and `fixq` added to the packet

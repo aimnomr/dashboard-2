@@ -21,7 +21,7 @@
 #define TX_POWER_DBM      17
 
 #define TEAM_ID           "MRC"
-#define PACKET_BUF        256      /* worst case is 133; 256 removes the question */
+#define PACKET_BUF        256      /* worst case is 144 at GEN3.1; 256 removes the question */
 
 /* ---- CADENCE -------------------------------------------------------------
  * CYCLE_PERIOD_MS is a hard requirement: telemetry may not be slower than 1 Hz.
@@ -85,6 +85,19 @@
 #define GPS_CAL_MIN_SATS     5
 #define GPS_BAUD             9600
 
+/* Longest a fix may go unrefreshed and still be transmitted as a position.
+ *
+ * TinyGPSPlus's isValid() never goes false once set, so without an age check the
+ * vehicle reports its last known fix forever after losing signal — measured at 14
+ * consecutive packets on 2026-08-19, frozen to the digit. See devlog 046.
+ *
+ * Three cycles. The GPS updates at 1 Hz and the vehicle samples at 1 Hz with no
+ * phase relationship between them, so age at sample time is routinely several
+ * hundred ms on a perfectly healthy fix; anything near 1000 would blank the
+ * position at random. Three periods is comfortably clear of that and still
+ * catches a real loss within a few seconds. */
+#define GPS_FIX_MAX_AGE_MS   3000
+
 /* ---- STORAGE -------------------------------------------------------------
  * Open, append, close on every write. Slower than holding the file open, and
  * chosen deliberately: a power loss at any instant costs at most the line in
@@ -146,4 +159,16 @@ struct Telemetry {
   double lat, lng;
   float  spd;
   int    sat;
+
+  /* Added in GEN3.1, 2026-08-20 — see devlog 048.
+   *
+   * hdop  horizontal dilution of precision, GGA field 8. 0.0 = not reported.
+   *       Satellite COUNT is a proxy for accuracy; this is the measurement. Ten
+   *       satellites bunched in one patch of sky are worse than five well spread,
+   *       and only this number says which you have.
+   * fixq  the receiver's own verdict, GGA field 6. -1 not reported, 0 invalid,
+   *       1 GPS, 2 DGPS. Sent as well as acted on locally, so the ground can tell
+   *       "no fix" apart from "no GPS data at all" without a second cable. */
+  float  hdop;
+  int    fixq;
 };

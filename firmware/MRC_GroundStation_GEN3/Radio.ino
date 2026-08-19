@@ -53,24 +53,44 @@ bool packetCrcValid(const char *packet) {
   return crc16Ccitt(packet + 1, (size_t)(star - packet - 1)) == expected;
 }
 
-/* Last comma-separated field before '*' is the chute counter.
+/* The chute counter, by INDEX rather than by position from the end.
+ *
+ * This used to walk back from '*' and take the last field, which was correct while
+ * chute WAS last. GEN3.1 appends ul, hdop and fixq after it (devlog 048), so that
+ * version would now return fixq — which is -1 or 0 in exactly the situations where a
+ * lost GPS fix coincides with a real deployment. The eject burst would have gone on
+ * firing at a vehicle that had already deployed, and the OLED would have said "armed".
+ *
+ * Counting forward is also robust to the NEXT field being appended, which is precisely
+ * the failure this one was: a rule that depended on nothing ever changing.
+ *
+ * Field 0 is the team marker, so chute is index 17.
  * Returns -1 if it cannot be read. */
+#define CHUTE_FIELD_INDEX 17
+
 int parseChute(const char *packet) {
   const char *star = strrchr(packet, '*');
   if (star == NULL) return -1;
 
-  const char *comma = star;
-  while (comma > packet && *comma != ',') comma--;
-  if (*comma != ',') return -1;
+  const char *p = packet;
+  for (int field = 0; field < CHUTE_FIELD_INDEX; field++) {
+    p = strchr(p, ',');
+    if (p == NULL || p >= star) return -1;    /* fewer fields than promised */
+    p++;
+  }
 
-  size_t len = (size_t)(star - comma - 1);
+  const char *end = strchr(p, ',');
+  if (end == NULL || end > star) end = star;  /* GEN3.0: chute was the last field */
+
+  size_t len = (size_t)(end - p);
   if (len == 0 || len > 5) return -1;
 
   char buf[6];
-  memcpy(buf, comma + 1, len);
+  memcpy(buf, p, len);
   buf[len] = '\0';
   return atoi(buf);
 }
+
 
 /* --------------------------------------------------------------------------
  *  Called every tick. Non-blocking: DIO1 goes high when a packet is fully

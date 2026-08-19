@@ -1,6 +1,10 @@
-# GEN3 Packet Format — Proposal
+# GEN3 Packet Format
 
-Proposed 2026-08-18, revised the same day after review. **Not yet agreed.**
+Proposed 2026-08-18, revised the same day after review. Flown as **GEN3.0**.
+
+**Revised 2026-08-20 to GEN3.1**, adding `ul`, `hdop` and `fixq` — see devlog 048. The
+three are APPENDED, never inserted: every GEN3.0 index is unchanged, both shapes parse,
+and the 17-field regression corpus in `backend/tests/fixtures/` still pins the parser.
 
 Retains GEN1's sensor field set and GEN2's precision where the sensors justify it, and
 closes `ISS-07`, `ISS-08` and `ISS-10`.
@@ -10,7 +14,8 @@ closes `ISS-07`, `ISS-08` and `ISS-10`.
 ## Vehicle transmits
 
 ```
-$MRC,<seq>,<ms>,<temp>,<hum>,<pres>,<alt>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<lat>,<lng>,<spd>,<sat>,<chute>*<CRC16>
+GEN3.0  $MRC,<seq>,<ms>,<temp>,<hum>,<pres>,<alt>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<lat>,<lng>,<spd>,<sat>,<chute>*<CRC16>
+GEN3.1  $MRC,…,<sat>,<chute>,<ul>,<hdop>,<fixq>*<CRC16>
 ```
 
 | # | Field | Fmt | Unit | Notes |
@@ -29,6 +34,9 @@ $MRC,<seq>,<ms>,<temp>,<hum>,<pres>,<alt>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<lat>,<l
 | 15 | `spd` | `%.1f` | km/h | |
 | 16 | `sat` | `%d` | — | |
 | 17 | `chute` | `%d` | — | **0 = armed · N ≥ 1 = commanded, N = commands received** |
+| 18 | `ul` | `%lu` | — | **GEN3.1** total uplink commands received (pings + ejects). Non-zero proves the two-way link has worked |
+| 19 | `hdop` | `%.1f` | — | **GEN3.1** horizontal dilution of precision. **0.0 = not reported**, never a perfect fix |
+| 20 | `fixq` | `%d` | — | **GEN3.1** receiver's own verdict: `-1` not reported · `0` invalid · `1` GPS · `2` DGPS |
 | — | `*CRC16` | `%04X` | — | **NEW** CCITT over everything between `$` and `*` |
 
 Ground station appends after the checksum:
@@ -37,7 +45,20 @@ Ground station appends after the checksum:
 $MRC,…,<chute>*A1B2,<rssi>,<snr>
 ```
 
-`rssi` `%.1f` dBm, `snr` `%.1f` dB. **19 fields at the PC.**
+`rssi` `%.1f` dBm, `snr` `%.1f` dB. **19 fields at the PC on GEN3.0, 22 on GEN3.1.**
+
+## Why appended and not grouped
+
+`hdop` and `fixq` belong beside `sat` semantically, and putting them there would have
+shifted `chute` from index 17 to 19. Three consequences, all avoided by appending:
+
+- The ground station's `parseChute()` reads by index and drives the eject retry loop.
+- `FLIGHT21/22.CSV`, the 1013-packet regression corpus, is 17-field and would have
+  stopped matching the parser it exists to pin.
+- A vehicle not yet reflashed would have been misread by a reflashed ground station,
+  silently and in the field.
+
+Semantic tidiness is worth less than every existing index staying where it is.
 
 ## Checksum definition
 

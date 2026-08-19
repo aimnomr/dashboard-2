@@ -22,7 +22,12 @@ from __future__ import annotations
 
 import pytest
 
-from dashboard.parser import GEN3_VEHICLE_FIELDS, crc16_ccitt, parse_line
+from dashboard.parser import (
+    GEN3_EXTENDED_FIELDS,
+    GEN3_VEHICLE_FIELDS,
+    crc16_ccitt,
+    parse_line,
+)
 
 from conftest import Corpus
 
@@ -101,7 +106,11 @@ def test_frame_carries_every_field_and_absent_link_quality_is_none(corpus: Corpu
     A packet read from SD never travelled over the air, so there is no RSSI to report.
     Defaulting it to 0 would render as a real -0 dBm reading — a measurement nobody took.
     """
-    expected = (set(GEN3_VEHICLE_FIELDS) - {"seq", "ms"}) | {"rssi", "snr"}
+    # The corpus is GEN3.0, so the GEN3.1 fields are present as keys but None —
+    # which is what keeps these captures usable as a regression corpus after the
+    # format bump. See devlog 048.
+    expected = ((set(GEN3_VEHICLE_FIELDS) - {"seq", "ms"})
+                | {"rssi", "snr"} | set(GEN3_EXTENDED_FIELDS))
     for result in corpus.frames:
         assert set(result.frame) == expected
         assert result.frame["rssi"] is None
@@ -301,3 +310,80 @@ def test_a_commanded_chute_stays_an_integer_count(real_line: str):
     assert result.ok
     assert result.frame["chute"] == 3
     assert isinstance(result.frame["chute"], int)
+
+
+# --------------------------------------------------------------- GEN3.1, appended fields
+
+
+def _framed(body: str) -> str:
+    """Wrap a comma body in the `$…*CRC` envelope with a real checksum."""
+    return f"${body}*{crc16_ccitt(body.encode()):04X}"
+
+
+_GEN30_BODY = (
+    "MRC,42,42000,29.73,75.1,1013.35,-0.2,"
+    "0.002,-0.001,0.911,-0.10,0.21,-0.01,"
+    "2.92717,101.76009,1.6,9,0"
+)
+_GEN31_BODY = _GEN30_BODY + ",4,1.2,1"
+
+
+def test_gen31_packet_parses_with_all_three_new_fields():
+    result = parse_line(_framed(_GEN31_BODY))
+    assert result.ok and result.crc_ok
+    assert result.frame["ul"] == 4
+    assert result.frame["hdop"] == pytest.approx(1.2)
+    assert result.frame["fixq"] == 1
+    assert result.warnings == []
+
+
+def test_gen30_packet_still_parses_after_the_bump():
+    """The whole reason the fields were appended rather than inserted.
+
+    FLIGHT21/22.CSV are GEN3.0 and are what pins this parser against real firmware
+    output. A parser that only accepted the new shape would have discarded its own
+    regression corpus on the day the format changed.
+    """
+    result = parse_line(_framed(_GEN30_BODY))
+    assert result.ok and result.crc_ok
+    assert result.frame["chute"] == 0
+    assert all(result.frame[n] is None for n in GEN3_EXTENDED_FIELDS)
+
+
+def test_appending_did_not_move_any_existing_field():
+    """Every GEN3.0 value must read identically out of a GEN3.1 packet."""
+    old = parse_line(_framed(_GEN30_BODY)).frame
+    new = parse_line(_framed(_GEN31_BODY)).frame
+    for name, value in old.items():
+        if name in GEN3_EXTENDED_FIELDS:
+            continue
+        assert new[name] == value, f"{name} moved: {value!r} -> {new[name]!r}"
+
+
+def test_a_half_extended_packet_is_rejected_not_guessed():
+    """18 or 19 vehicle fields is a truncation that survived its checksum, or firmware
+    caught mid-edit. Parsing whatever prefix fits would put real numbers in the wrong
+    columns, which is worse than refusing."""
+    for partial in (",4", ",4,1.2"):
+        result = parse_line(_framed(_GEN30_BODY + partial))
+        assert not result.ok
+        assert "GEN3.0" in result.error and "GEN3.1" in result.error
+
+
+def test_fixq_minus_one_is_carried_not_clamped():
+    """-1 means "the receiver never reported", which is not 0 ("it says invalid")."""
+    body = _GEN30_BODY + ",0,0.0,-1"
+    result = parse_line(_framed(body))
+    assert result.ok
+    assert result.frame["fixq"] == -1
+    assert result.frame["hdop"] == 0.0
+    assert result.warnings == []
+
+
+def test_checksum_still_covers_the_new_fields():
+    """The CRC is computed over the whole body, so corrupting a new field must reject."""
+    good = _framed(_GEN31_BODY)
+    corrupted = good.replace(",4,1.2,1*", ",9,1.2,1*")
+    assert parse_line(good).ok
+    assert not parse_line(corrupted).ok
+    assert "checksum mismatch" in parse_line(corrupted).error

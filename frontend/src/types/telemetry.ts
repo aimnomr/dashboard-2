@@ -23,11 +23,45 @@ export interface TelemetryFrame {
   spd: number
   sat: number
   /**
+   * Horizontal dilution of precision — GEN3.1 only, null on anything older.
+   *
+   * The accuracy figure `sat` only approximates: ten satellites bunched in one patch of
+   * sky give a worse position than five well spread, and only this number says which
+   * you have. Lower is better; under 2 is excellent, over 10 is barely usable.
+   *
+   * **0 is the vehicle's "not reported" sentinel**, not a perfect reading — a real HDOP
+   * is never zero. Null means the firmware predates the field entirely.
+   */
+  hdop: number | null
+  /**
+   * The GPS receiver's own verdict on its fix — GEN3.1 only.
+   *
+   * `-1` never reported · `0` invalid · `1` GPS fix · `2` DGPS fix.
+   *
+   * Distinct from inferring a fix from non-zero coordinates, which is what the dashboard
+   * did until the vehicle was caught transmitting a position it had already lost. This
+   * is the receiver stating the answer rather than the ground guessing it.
+   */
+  fixq: number | null
+  /**
    * 0 armed, 1 deployed, or null when the packet carries no chute field at all
    * (GEN1). Null is NOT "not deployed" — it means unknown, and must be displayed
    * as such rather than as a reassuring ARMED.
    */
   chute: number | null
+  /**
+   * Total uplink commands the vehicle has received since boot — pings plus ejects.
+   * GEN3.1 only; null on firmware that predates it.
+   *
+   * Non-zero is proof the two-way link has worked at least once. That is the single
+   * fact devlogs 037 through 044 were all argued without, because it existed only on
+   * the vehicle's OLED — which cannot be seen once the CanSat is sealed, and was dead
+   * on the unit that mattered.
+   *
+   * Null is NOT 0. Zero is the vehicle saying "nothing has ever reached me"; null is
+   * firmware that never had an opinion.
+   */
+  ul: number | null
   /**
    * Measured by the ground station's radio as the packet arrives — so it exists only
    * when the packet actually crossed a radio. A packet read from an SD capture or

@@ -8,7 +8,7 @@ const baseFrame: TelemetryFrame = {
   ax: 0, ay: 0, az: 1,
   gx: 0, gy: 0, gz: 0,
   lat: 3.07830, lng: 101.71220, spd: 0, sat: 9,
-  chute: 0, rssi: -55.6, snr: 9.33,
+  chute: 0, ul: null, hdop: null, fixq: null, rssi: -55.6, snr: 9.33,
 }
 
 /** `vehicleMs` null models GEN1/GEN2, which carry no onboard clock. */

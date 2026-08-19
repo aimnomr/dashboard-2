@@ -54,7 +54,8 @@ status.md            current state — read at session start
 
 | | |
 |---|---|
-| What the packet looks like | `wiki/source/firmware/packet-format.md` |
+| What the packet looks like **now** | `wiki/decisions/gen3-packet-format.md` — GEN3.1 |
+| What GEN1/GEN2 sent | `wiki/source/firmware/packet-format.md` — external fact, not updated |
 | Why the pipeline is shaped this way | `wiki/decisions/ingest-pipeline.md` |
 | Stack and repo layout | `wiki/decisions/stack.md` |
 | UI decisions | `wiki/decisions/frontend.md` |

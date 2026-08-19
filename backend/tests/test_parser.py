@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from dashboard.parser import GEN1_FIELDS, GEN2_FIELDS, parse_line
+from dashboard.parser import GEN1_FIELDS, GEN2_FIELDS, GEN3_EXTENDED_FIELDS, parse_line
 
 GEN2_LINE = (
     "32.50,78.0,1007.90,0.00,"
@@ -33,7 +33,11 @@ def test_gen2_line_parses_all_seventeen_fields():
     assert result.ok
     assert result.kind == "frame"
     assert result.generation == "GEN2"
-    assert set(result.frame) == set(GEN2_FIELDS)
+    # Plus the GEN3.1 fields as None. Every frame the parser emits carries the same
+    # keys whatever produced it, so a consumer never has to ask which generation it
+    # is holding before deciding which keys are safe to read.
+    assert set(result.frame) == set(GEN2_FIELDS) | set(GEN3_EXTENDED_FIELDS)
+    assert all(result.frame[n] is None for n in GEN3_EXTENDED_FIELDS)
     assert result.frame["temp"] == pytest.approx(32.50)
     assert result.frame["rssi"] == pytest.approx(-55.6)
     assert result.warnings == []
@@ -55,12 +59,24 @@ def test_gen1_line_still_parses():
     result = parse_line(GEN1_LINE)
     assert result.ok
     assert result.generation == "GEN1"
-    assert set(result.frame) == set(GEN1_FIELDS) | {"chute"}
+    assert set(result.frame) == set(GEN1_FIELDS) | {"chute"} | set(GEN3_EXTENDED_FIELDS)
 
 
 def test_gen1_chute_is_none_not_zero():
     """Absent is not 'not deployed'. The UI must show unknown, never a calm ARMED."""
     assert parse_line(GEN1_LINE).frame["chute"] is None
+
+
+def test_legacy_extended_fields_are_none_not_zero():
+    """The same rule, for the GEN3.1 fields on firmware that predates them.
+
+    `ul=0` is a claim: "the uplink has never worked". `fixq=0` is a claim: "the receiver
+    says the fix is invalid". Neither may be manufactured on behalf of firmware that
+    said nothing at all — the difference is exactly the one an operator would act on.
+    """
+    for name in GEN3_EXTENDED_FIELDS:
+        assert parse_line(GEN1_LINE).frame[name] is None
+        assert parse_line(GEN2_LINE).frame[name] is None
 
 
 def test_gps_precision_is_preserved():

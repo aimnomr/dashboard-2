@@ -1,7 +1,14 @@
 /* ============================================================================
  *  Packet — GEN3 framing and checksum.
  *
- *  $MRC,seq,ms,temp,hum,pres,alt,ax,ay,az,gx,gy,gz,lat,lng,spd,sat,chute*CRC16
+ *  GEN3.1, from 2026-08-20:
+ *  $MRC,seq,ms,temp,hum,pres,alt,ax,ay,az,gx,gy,gz,lat,lng,spd,sat,chute,ul,hdop,fixq*CRC16
+ *
+ *  The three new fields are APPENDED, never inserted. Every existing field keeps its
+ *  index, so a 17-field parser and a 20-field parser disagree only about how much they
+ *  can see — which is what lets the GEN3.0 regression corpus (FLIGHT21/22.CSV) keep
+ *  pinning this code unchanged. Inserting `hdop` next to `sat`, where it belongs
+ *  semantically, would have shifted `chute` and broken every consumer at once.
  *
  *  The ground station appends ",rssi,snr" AFTER the checksum, so this checksum
  *  covers exactly what left the vehicle. That is what makes corruption over the
@@ -29,7 +36,7 @@ uint16_t crc16Ccitt(const char *data, size_t len) {
 }
 
 void packetBuild(char *out, size_t cap, const Telemetry &t,
-                 uint32_t seq, uint32_t ms, uint32_t chute) {
+                 uint32_t seq, uint32_t ms, uint32_t chute, uint32_t ul) {
   char body[PACKET_BUF];
 
   snprintf(body, sizeof(body),
@@ -38,7 +45,8 @@ void packetBuild(char *out, size_t cap, const Telemetry &t,
     "%.3f,%.3f,%.3f,"             /* ax, ay, az                   */
     "%.2f,%.2f,%.2f,"             /* gx, gy, gz                   */
     "%.5f,%.5f,%.1f,%d,"          /* lat, lng, spd, sat           */
-    "%lu",                        /* chute: 0 armed, N commanded  */
+    "%lu,"                        /* chute: 0 armed, N commanded  */
+    "%lu,%.1f,%d",                /* ul, hdop, fixq  (GEN3.1)     */
     TEAM_ID,
     (unsigned long)seq,
     (unsigned long)ms,
@@ -46,7 +54,8 @@ void packetBuild(char *out, size_t cap, const Telemetry &t,
     t.ax, t.ay, t.az,
     t.gx, t.gy, t.gz,
     t.lat, t.lng, t.spd, t.sat,
-    (unsigned long)chute);
+    (unsigned long)chute,
+    (unsigned long)ul, t.hdop, t.fixq);
 
   snprintf(out, cap, "$%s*%04X", body, crc16Ccitt(body, strlen(body)));
 }

@@ -30,7 +30,9 @@
 
 /* ---- SERIAL --------------------------------------------------------------- */
 #define SERIAL_BAUD       115200
-#define PACKET_BUF        256      /* worst case is 145; 256 removes the question */
+/* Worst case is 144 for a GEN3.1 vehicle packet, plus ",-120.0,-20.0" of link
+ * quality appended here = 158. 256 removes the question. */
+#define PACKET_BUF        256
 #define SERIAL_LINE_BUF   64
 
 /* ---- UPLINK ---------------------------------------------------------------
@@ -61,12 +63,17 @@
 #define EJECT_ATTEMPTS     5
 #define EJECT_RETRY_MS   300
 
-/* PING proves the uplink works WITHOUT firing the parachute. Pre-launch, one
- * person watches the sealed flight unit's OLED while another sends this; the
- * vehicle's "UL <n>s" figure resets when it arrives.
+/* PING proves the uplink works WITHOUT firing the parachute.
  *
- * This ground station cannot tell whether the vehicle heard it — there is no
- * acknowledgement. The evidence is on the vehicle's screen. */
+ * This ground station still cannot tell whether the vehicle heard it — there is
+ * no acknowledgement on the uplink and there never has been. What changed on
+ * 2026-08-20 is where the evidence appears: GEN3.1 carries `ul`, the vehicle's
+ * count of commands received, in every telemetry packet. Press Ping and watch it
+ * increment on the dashboard.
+ *
+ * That replaces "one person watches the sealed unit's OLED while another sends
+ * this" — an instruction that could not be followed once the CanSat was closed,
+ * and could not be followed at all on a set whose screen was dead. */
 #define CMD_PING          "CMD:PING"
 #define PING_TOKEN        "PING"
 #define PING_BLIND_AFTER_MS 3000   /* if no packet arrives to time against, send anyway */

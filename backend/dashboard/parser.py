@@ -6,12 +6,19 @@ wiki/decisions/ingest-pipeline.md and wiki/decisions/dashboard-gen3-plan.md.
 
 Three generations are accepted:
 
-    GEN3  $MRC,seq,ms,temp,…,chute*CRC16[,rssi,snr]   canonical
-    GEN2  temp,…,sat,CHUTE:n,rssi,snr                 17 fields
-    GEN1  temp,…,sat,rssi,snr                         16 fields
+    GEN3.1  $MRC,seq,ms,…,chute,ul,hdop,fixq*CRC16[,rssi,snr]   canonical, 20 vehicle
+    GEN3.0  $MRC,seq,ms,…,chute*CRC16[,rssi,snr]                17 vehicle
+    GEN2    temp,…,sat,CHUTE:n,rssi,snr                         17 fields
+    GEN1    temp,…,sat,rssi,snr                                 16 fields
 
 GEN1 and GEN2 tolerance is kept deliberately: the bench firmware is GEN1, the CanSat SD
 logs from that era are GEN1, and so is CANSAT_DATA.
+
+GEN3.0 tolerance is not optional either. FLIGHT21/22.CSV in tests/fixtures/ are 17-field
+captures and are what pins this parser against real firmware output; a parser that only
+accepted the new shape would have thrown away its own regression corpus. The three GEN3.1
+fields are APPENDED for exactly that reason — every older index is unchanged, so the two
+shapes differ only in how much they carry, never in where anything is.
 
 GEN3's link-quality fields are optional. The ground station appends them, but a packet
 read straight off the SD card has none — and that is the same file a replay source would
@@ -36,7 +43,7 @@ from typing import Literal
 
 # --------------------------------------------------------------------------- GEN3
 
-#: Vehicle-supplied fields, in wire order, after the team marker.
+#: Vehicle-supplied fields, in wire order, after the team marker. GEN3.0 stops here.
 GEN3_VEHICLE_FIELDS = (
     "seq", "ms",
     "temp", "hum", "pres", "alt",
@@ -45,6 +52,16 @@ GEN3_VEHICLE_FIELDS = (
     "lat", "lng", "spd", "sat",
     "chute",
 )
+
+#: Appended by GEN3.1 firmware, 2026-08-20. Absent from every capture taken before it.
+#:
+#: ``ul``    total uplink commands received (pings + ejects). Non-zero is proof the
+#:           two-way link has worked at least once — the question devlogs 037 to 044
+#:           were all argued blind for want of.
+#: ``hdop``  horizontal dilution of precision. 0.0 means the receiver never reported
+#:           it, which is safe because a real HDOP is never zero.
+#: ``fixq``  the receiver's own verdict: -1 not reported, 0 invalid, 1 GPS, 2 DGPS.
+GEN3_EXTENDED_FIELDS = ("ul", "hdop", "fixq")
 
 #: Appended by the ground station after the checksum. Absent when read from SD.
 GEN3_LINK_FIELDS = ("rssi", "snr")
@@ -62,7 +79,7 @@ GEN2_FIELDS = (*_COMMON_FIELDS, "chute", "rssi", "snr")   # 17
 GEN1_FIELDS = (*_COMMON_FIELDS, "rssi", "snr")            # 16
 
 #: Fields that are conceptually integers. Everything else is a float.
-_INT_FIELDS = frozenset({"sat", "chute", "seq", "ms"})
+_INT_FIELDS = frozenset({"sat", "chute", "seq", "ms", "ul", "fixq"})
 
 #: Plausibility bounds. Deliberately wider than the simulator clamps — those are
 #: properties of the simulator, not of physics. Real logged data already sits outside
@@ -84,6 +101,10 @@ _PLAUSIBLE: dict[str, tuple[float, float]] = {
     "spd": (0.0, 500.0),
     "sat": (0.0, 64.0),
     "chute": (0.0, 255.0),
+    "ul": (0.0, 100000.0),
+    # 0 is the "not reported" sentinel; a real HDOP runs from ~0.5 (superb) to 50 (junk).
+    "hdop": (0.0, 100.0),
+    "fixq": (-1.0, 8.0),      # NMEA defines up to 8; this receiver emits 0, 1 or 2
     "rssi": (-150.0, 0.0),
     "snr": (-30.0, 30.0),
 }
@@ -189,12 +210,22 @@ def _parse_gen3(raw: str) -> ParseResult:
             error=f"checksum mismatch: computed {actual:04X}, packet says {expected:04X}",
         )
 
-    # tokens = team + the 17 vehicle fields
-    if len(tokens) != len(GEN3_VEHICLE_FIELDS) + 1:
+    # tokens = team + either the 17 GEN3.0 vehicle fields or the 20 of GEN3.1.
+    #
+    # Two exact shapes, not "17 or more". A packet with 18 or 19 fields is a truncation
+    # that happened to survive its checksum, or a firmware mid-edit, and either way the
+    # right answer is to say so rather than to parse whatever prefix fits.
+    n_vehicle = len(tokens) - 1
+    if n_vehicle == len(GEN3_VEHICLE_FIELDS):
+        vehicle_names = GEN3_VEHICLE_FIELDS
+    elif n_vehicle == len(GEN3_VEHICLE_FIELDS) + len(GEN3_EXTENDED_FIELDS):
+        vehicle_names = (*GEN3_VEHICLE_FIELDS, *GEN3_EXTENDED_FIELDS)
+    else:
         return ParseResult(
             kind="frame", ok=False, raw=raw, generation="GEN3", team=team, crc_ok=True,
-            error=(f"expected {len(GEN3_VEHICLE_FIELDS) + 1} comma-separated values "
-                   f"before the checksum, got {len(tokens)}"),
+            error=(f"expected {len(GEN3_VEHICLE_FIELDS) + 1} (GEN3.0) or "
+                   f"{len(GEN3_VEHICLE_FIELDS) + len(GEN3_EXTENDED_FIELDS) + 1} (GEN3.1) "
+                   f"comma-separated values before the checksum, got {len(tokens)}"),
         )
 
     # Link quality, appended by the ground station after the checksum. Absent when the
@@ -215,7 +246,7 @@ def _parse_gen3(raw: str) -> ParseResult:
                        f"checksum, got {len(link_values)}"),
             )
 
-    names = (*GEN3_VEHICLE_FIELDS, *GEN3_LINK_FIELDS[:len(link_values)])
+    names = (*vehicle_names, *GEN3_LINK_FIELDS[:len(link_values)])
     values = (*tokens[1:], *link_values)
 
     frame, error = _convert(names, values)
@@ -226,6 +257,13 @@ def _parse_gen3(raw: str) -> ParseResult:
     # Link quality is absent rather than zero when reading from SD. Zero would render as
     # a real -0 dBm reading, which is a fabricated measurement.
     for name in GEN3_LINK_FIELDS:
+        frame.setdefault(name, None)
+
+    # Same rule for the GEN3.1 fields on a GEN3.0 packet: None means "this firmware
+    # never told us", which is not the same as ul=0 ("the uplink has never worked") or
+    # fixq=0 ("the receiver says the fix is invalid"). Both of those are real claims and
+    # must not be manufactured on behalf of firmware that made neither.
+    for name in GEN3_EXTENDED_FIELDS:
         frame.setdefault(name, None)
 
     seq = frame.pop("seq")
@@ -267,6 +305,13 @@ def _parse_legacy(raw: str) -> ParseResult:
     # None rather than 0 — the UI must show "unknown", never a reassuring "armed".
     if generation == "GEN1":
         frame["chute"] = None
+
+    # Neither older generation carries the GEN3.1 fields. Set them explicitly rather
+    # than leaving the keys missing, so every frame this module emits has the same shape
+    # whatever produced it — a consumer should never have to ask which generation it is
+    # holding to know which keys are safe to read.
+    for name in GEN3_EXTENDED_FIELDS:
+        frame[name] = None
 
     return ParseResult(kind="frame", ok=True, raw=raw, frame=frame,
                        generation=generation, warnings=_check_ranges(frame))

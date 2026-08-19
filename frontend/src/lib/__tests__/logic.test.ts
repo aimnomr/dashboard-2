@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { attitudeWarning, computeAttitude, UNRELIABLE_CONFIRM } from '../attitude'
-import { hasFix, niceScale, toLocal } from '../geo'
+import { fixStale, hasFix, hasLiveFix, niceScale, toLocal } from '../geo'
 import { formatMeasurement, lossPresentation } from '../link'
 import type { FrameRecord, LinkStats } from '../../types/telemetry'
 import type { TelemetryFrame } from '../../types/telemetry'
@@ -10,7 +10,7 @@ const base: TelemetryFrame = {
   ax: 0, ay: 0, az: 1,
   gx: 0, gy: 0, gz: 0,
   lat: 3.07830, lng: 101.71220, spd: 0, sat: 9,
-  chute: 0, rssi: -55.6, snr: 9.33,
+  chute: 0, ul: 0, hdop: 1.1, fixq: 1, rssi: -55.6, snr: 9.33,
 }
 
 const frame = (over: Partial<TelemetryFrame>): TelemetryFrame => ({ ...base, ...over })
@@ -24,6 +24,51 @@ const record = (over: Partial<TelemetryFrame>, i = 0): FrameRecord => ({
 const still = (i: number) => record({ ax: 0.004, ay: -0.002, az: 0.917 }, i)
 /** A single-frame sensor glitch of the kind three hardware logs are full of. */
 const glitch = (i: number) => record({ ax: 0.004, ay: -0.002, az: 0.365 }, i)
+
+describe('a stale GPS fix is not a fix', () => {
+  // Measured, not hypothetical. In 20260819-234649-serial.log the satellite count
+  // decayed 10 -> 9 -> 8 -> 2 -> 0 and the vehicle then transmitted the identical
+  // position and speed for 14 consecutive packets, because TinyGPSPlus's isValid()
+  // latches true on the first fix and never returns to false.
+
+  it('spots coordinates reported with zero satellites', () => {
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 0 }))).toBe(true)
+  })
+
+  it('leaves a real fix alone', () => {
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 9 }))).toBe(false)
+    expect(hasLiveFix(frame({ lat: 2.92717, lng: 101.76009, sat: 9 }))).toBe(true)
+  })
+
+  it('does not call a plain no-fix stale', () => {
+    // 0,0 with 0 satellites is the firmware saying "I have nothing", which is honest.
+    // Only a POSITION with no satellites is a contradiction.
+    expect(fixStale(frame({ lat: 0, lng: 0, sat: 0 }))).toBe(false)
+  })
+
+  it('believes the receiver over the satellite count when GEN3.1 provides it', () => {
+    // fixq === 0 is the module stating the fix is invalid. That outranks any inference
+    // from sat, and catches the case sat alone misses: a receiver still tracking
+    // satellites but unable to resolve a position from them.
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 9, fixq: 0 }))).toBe(true)
+  })
+
+  it('lets fixq -1 pass, because "not reported" is not "invalid"', () => {
+    // A module that never sends GGA would otherwise blank the ground track forever.
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 9, fixq: -1 }))).toBe(false)
+  })
+
+  it('falls back to the satellite count on firmware with no fixq', () => {
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 0, fixq: null }))).toBe(true)
+    expect(fixStale(frame({ lat: 2.92717, lng: 101.76009, sat: 9, fixq: null }))).toBe(false)
+  })
+
+  it('withholds a stale position from anything that plots it', () => {
+    const stale = frame({ lat: 2.92717, lng: 101.76009, sat: 0 })
+    expect(hasFix(stale)).toBe(true)      // the coordinates are there
+    expect(hasLiveFix(stale)).toBe(false) // and must not be believed
+  })
+})
 
 describe('attitude warning is confirmed, not instant', () => {
   it('ignores a lone bad frame', () => {

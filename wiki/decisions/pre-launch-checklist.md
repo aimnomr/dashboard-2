@@ -67,15 +67,25 @@ still holds the port. Do not proceed on the assumption it will sort itself out.
 
 ## D · Uplink check
 
-**Do this before the unit is sealed.** Once it is in the rocket there is currently no way
-to verify the uplink at all — see the note at the end of this section.
+**On GEN3.1 firmware this can be done at any time, sealed or not** — which is new as of
+2026-08-20 and is the point of the `ul` field. On GEN3.0 it must happen before the unit
+is closed.
 
-Nothing on the dashboard can confirm a ping arrived. The ground station prints *"no
-acknowledgement exists"* because there is no acknowledgement path; silence after a Ping is
-**not** evidence of failure, only absence of evidence. You need one of the two witnesses
-below.
+There is still no acknowledgement on the uplink itself, and there never has been: the
+ground station prints *"no acknowledgement exists"* because none does. Silence after a
+Ping is **not** evidence of failure. What changed is that the vehicle now reports how many
+commands it has received, in every telemetry packet.
 
-**Either — the vehicle's OLED** (fastest, when the screen works):
+**Preferred — the dashboard** (GEN3.1 firmware; works sealed, works at altitude):
+
+- [ ] Note the **Uplink** figure on the Eject panel
+- [ ] Press **Ping**
+- [ ] Confirm the count **increments within a second or two**
+
+A reading of *"Uplink unproven — the vehicle has received nothing"* after a Ping is the
+only unambiguous failure signal this system has ever had. Treat it as a STOP.
+
+**Or — the vehicle's OLED** (GEN3.0, and only while the screen is visible and working):
 
 - [ ] Press **Ping**
 - [ ] Confirm the **UL counter resets on the vehicle's OLED**

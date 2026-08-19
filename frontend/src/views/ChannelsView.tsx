@@ -129,6 +129,20 @@ export function ChannelsView({ history }: ChannelsViewProps) {
         series: [{ label: 'sat', values: pick((r) => r.frame.sat), stroke: 'var(--trace-2)' }],
       },
       {
+        title: 'GPS accuracy',
+        unit: 'HDOP',
+        minSpan: 4,
+        series: [{ label: 'hdop', values: pick((r) => r.frame.hdop), stroke: 'var(--trace-2)' }],
+        caveat: 'lower is better — 0 means the receiver did not report it, not a perfect fix',
+      },
+      {
+        title: 'Uplink commands',
+        unit: 'count',
+        minSpan: 2,
+        series: [{ label: 'ul', values: pick((r) => r.frame.ul), stroke: 'var(--trace)' }],
+        caveat: 'pings and ejects together; GEN3.1 firmware only',
+      },
+      {
         title: 'RSSI',
         unit: 'dBm',
         minSpan: 10,
