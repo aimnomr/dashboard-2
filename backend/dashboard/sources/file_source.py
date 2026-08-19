@@ -127,16 +127,26 @@ class FileSource(TelemetrySource):
         just cannot contribute a gap, which is exactly true of a corrupt packet on a real
         link too.
         """
+        result = parse_line(raw)
+
+        # Non-telemetry goes out immediately in EITHER pacing mode. On a real link a
+        # status line arrives between packets, not instead of one, so it must never
+        # consume a slot in the cadence.
+        #
+        # This check sits above the fixed-interval branch deliberately. Below it, the
+        # self-describing header added on 2026-08-20 would cost 167 intervals — nearly
+        # three minutes of an empty dashboard at --interval 1 — before the first packet.
+        if result.kind != "frame":
+            return 0.0, previous_ms
+
         if self.interval is not None:
             return self.interval / self.speed, None
 
-        result = parse_line(raw)
         current_ms = result.vehicle_ms if result.ok else None
 
         if current_ms is None:
-            # Headers, status lines and corrupt packets carry no usable clock. They are
-            # emitted immediately: on a real link they arrive between packets, not
-            # instead of them, so they must not consume a slot in the cadence.
+            # A generation with no onboard clock, or a corrupt packet. Either way there
+            # is no gap to reproduce, so it follows immediately.
             return 0.0, previous_ms
 
         if previous_ms is None:

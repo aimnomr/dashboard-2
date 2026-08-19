@@ -78,6 +78,50 @@ _COMMON_FIELDS = (
 GEN2_FIELDS = (*_COMMON_FIELDS, "chute", "rssi", "snr")   # 17
 GEN1_FIELDS = (*_COMMON_FIELDS, "rssi", "snr")            # 16
 
+#: Human-readable contract for every field, rendered into the header of each raw log
+#: so a .log file explains itself without the codebase. `(unit, printf, meaning)`.
+#:
+#: This is the single source of truth for that header. `test_field_doc_covers_every_field`
+#: fails if a field is added to the tuples above without an entry here, which is what
+#: stops the logs drifting away from the parser the way documentation usually does.
+FIELD_DOC: dict[str, tuple[str, str, str]] = {
+    "seq":   ("-",      "%lu",  "packet counter since VEHICLE boot. Restarts at 1 on reboot. "
+                                "Not a loss metric by itself - see the link stats"),
+    "ms":    ("ms",     "%lu",  "millis() since vehicle boot, at the moment of sampling. This is "
+                                "the clock to derive rates from; arrival time carries link jitter"),
+    "temp":  ("degC",   "%.2f", "BME280 air temperature"),
+    "hum":   ("%RH",    "%.1f", "BME280 relative humidity. Sensor accuracy is +/-3%, so the "
+                                "first decimal is precision, not accuracy"),
+    "pres":  ("hPa",    "%.2f", "BME280 barometric pressure. The altitude source"),
+    "alt":   ("m",      "%.1f", "RELATIVE TO BOOT ALTITUDE, not above sea level. Zeroed during "
+                                "startup calibration, so negative values are normal"),
+    "ax":    ("g",      "%.3f", "MPU6050 accel X, +/-8 g range"),
+    "ay":    ("g",      "%.3f", "MPU6050 accel Y"),
+    "az":    ("g",      "%.3f", "MPU6050 accel Z. +z runs along the can's LONG AXIS, so this "
+                                "reads ~1 g sitting upright. Reads ~0.92 on the current unit"),
+    "gx":    ("deg/s",  "%.2f", "MPU6050 gyro X, +/-500 deg/s range"),
+    "gy":    ("deg/s",  "%.2f", "MPU6050 gyro Y"),
+    "gz":    ("deg/s",  "%.2f", "MPU6050 gyro Z"),
+    "lat":   ("deg",    "%.5f", "GPS latitude, ~1.1 m resolution. 0.00000 means NO FIX - it is "
+                                "a sentinel, not a position in the Gulf of Guinea"),
+    "lng":   ("deg",    "%.5f", "GPS longitude. Same sentinel"),
+    "spd":   ("km/h",   "%.1f", "GPS ground speed. 0.0 when there is no fix"),
+    "sat":   ("count",  "%d",   "satellites tracked. A PROXY for accuracy - hdop is the "
+                                "measurement. 4 is the minimum for a 3D fix"),
+    "chute": ("count",  "%d",   "0 = armed, N = eject commands received. This means COMMANDED, "
+                                "never deployed: nothing on board can sense the canopy"),
+    "ul":    ("count",  "%lu",  "GEN3.1. Total uplink commands received, pings + ejects. "
+                                "Non-zero is proof the two-way link has worked at least once"),
+    "hdop":  ("-",      "%.1f", "GEN3.1. Horizontal dilution of precision, LOWER IS BETTER. "
+                                "0.0 means NOT REPORTED - it is never a perfect fix"),
+    "fixq":  ("-",      "%d",   "GEN3.1. The receiver's own verdict: -1 not reported, "
+                                "0 invalid, 1 GPS fix, 2 DGPS fix"),
+    "rssi":  ("dBm",    "%.1f", "Measured by the GROUND STATION as the packet arrived, and "
+                                "appended AFTER the checksum - so it is not covered by the CRC "
+                                "and is absent from anything read off the vehicle's SD card"),
+    "snr":   ("dB",     "%.1f", "Ground station signal-to-noise. Same caveats as rssi"),
+}
+
 #: Fields that are conceptually integers. Everything else is a float.
 _INT_FIELDS = frozenset({"sat", "chute", "seq", "ms", "ul", "fixq"})
 

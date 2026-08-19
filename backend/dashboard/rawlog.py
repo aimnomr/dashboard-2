@@ -19,6 +19,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .contract import CONTRACT_VERSION, packet_contract
+
 
 class RawLog:
     """Append-only line log with durable writes.
@@ -42,21 +44,50 @@ class RawLog:
         for a real flight when someone finds it six weeks later.
         """
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        started = datetime.now(timezone.utc)
         log = cls(Path(log_dir) / "raw" / f"{stamp}-{source_name}.log")
-        log._write_sidecar(source_name, stamp)
+        log._write_header(source_name, started)
+        log._write_sidecar(source_name, stamp, started)
         return log
 
-    def _write_sidecar(self, source_name: str, stamp: str) -> None:
-        """Run metadata goes beside the log, never inside it.
+    def _write_header(self, source_name: str, started: datetime) -> None:
+        """The packet contract, in the log itself.
 
-        The log stays byte-faithful to what arrived, so it can be replayed through the
-        parser without a header line to skip.
+        Reverses the original decision to keep the log byte-faithful with metadata only
+        in the sidecar. The reason it is safe now, and was not obviously safe then: every
+        header line starts with '#', and `parse_line()` already classifies those as
+        status lines because the vehicle's own SD logs use them. A replay reads straight
+        through. Nothing has to be stripped, and no consumer needs to know the header
+        exists.
+
+        The reason it is worth doing: a sidecar is a separate file, and separate files
+        get lost. A log copied to a USB stick, pasted into a chat, or attached to a
+        competition submission arrives alone, and then nobody can tell whether column 14
+        is a longitude or a sentinel. The contract belongs where the data is.
+
+        Written before any telemetry, and never again - not per line, not per rotation.
+        """
+        self._fh.write(packet_contract(source_name, started) + "\n")
+        self._fh.flush()
+        os.fsync(self._fh.fileno())
+
+    def _write_sidecar(self, source_name: str, stamp: str, started: datetime) -> None:
+        """Machine-readable run metadata, beside the log.
+
+        Kept after the header moved into the log itself: this one is for programs, the
+        header is for people. Duplicating the few fields they share costs nothing and
+        means neither has to be parsed to get at the other.
         """
         meta = {
             "source": source_name,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": started.isoformat(),
             "local_stamp": stamp,
-            "note": "Raw serial lines exactly as received, including malformed and [GCS] lines.",
+            "contract": CONTRACT_VERSION,
+            "note": (
+                "Raw serial lines exactly as received, including malformed and [GCS] "
+                "lines. The file opens with a '#'-prefixed packet contract; the parser "
+                "treats those as status lines, so it replays without stripping anything."
+            ),
         }
         self.path.with_suffix(".meta.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8"
