@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { computeAttitude } from '../attitude'
 import { hasFix, niceScale, toLocal } from '../geo'
+import { formatMeasurement } from '../link'
 import type { TelemetryFrame } from '../../types/telemetry'
 
 const base: TelemetryFrame = {
@@ -117,5 +118,30 @@ describe('attitude', () => {
     // actually means something, so it must not be suppressed.
     const a = computeAttitude(frame({ ax: 0.05, ay: 0.05, az: 0.85, gx: 2, gy: 1, gz: 1 }))
     expect(a.reliable).toBe(true)
+  })
+})
+
+describe('absent measurements', () => {
+  // RSSI and SNR are measured by the ground station's radio as a packet arrives, so a
+  // packet read from an SD capture or replayed from a file has neither. Before this
+  // existed, StatusBar called .toFixed() on them directly and a replay took the whole
+  // render down with a TypeError.
+  it('renders a null measurement as a dash', () => {
+    expect(formatMeasurement(null, 0)).toBe('—')
+    expect(formatMeasurement(undefined, 1)).toBe('—')
+  })
+
+  it('never turns an absent measurement into zero', () => {
+    // -0 dBm would read as the strongest signal on the scale, for a measurement
+    // nobody took. This is the same failure as showing 0% packet loss with no counter.
+    expect(formatMeasurement(null, 0)).not.toBe('0')
+    expect(formatMeasurement(null, 0)).not.toBe('-0')
+  })
+
+  it('still formats a real measurement, including zero', () => {
+    expect(formatMeasurement(-55.6, 0)).toBe('-56')
+    expect(formatMeasurement(9.33, 1)).toBe('9.3')
+    // A genuine 0 dB SNR is a reading, not an absence, and must survive as one.
+    expect(formatMeasurement(0, 1)).toBe('0.0')
   })
 })

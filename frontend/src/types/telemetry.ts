@@ -28,8 +28,16 @@ export interface TelemetryFrame {
    * as such rather than as a reassuring ARMED.
    */
   chute: number | null
-  rssi: number
-  snr: number
+  /**
+   * Measured by the ground station's radio as the packet arrives — so it exists only
+   * when the packet actually crossed a radio. A packet read from an SD capture or
+   * replayed from a file has no such measurement, and both arrive as null.
+   *
+   * Null is NOT 0. Rendering a missing measurement as 0 would put a -0 dBm reading on
+   * screen, which reads as the strongest possible signal.
+   */
+  rssi: number | null
+  snr: number | null
 }
 
 export interface SessionMessage {
@@ -55,7 +63,7 @@ export interface FrameMessage {
   ok: boolean
   frame: TelemetryFrame | null
   simulated: boolean
-  generation?: 'GEN1' | 'GEN2'
+  generation?: 'GEN1' | 'GEN2' | 'GEN3'
   error?: string
   warnings?: string[]
 }

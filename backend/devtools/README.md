@@ -27,7 +27,41 @@ Then open http://127.0.0.1:8000 (or run the Vite dev server against it).
 | `--clean` | No malformed lines, no `[GCS]` status lines |
 | `--seed 42` | Reproducible flight, for tests and comparisons |
 
-## What it simulates
+## Replaying a captured flight
+
+```bash
+python -m devtools.run_replay FLIGHT21.CSV --speed 8 --hold
+```
+
+Feeds a real SD capture through the real pipeline at the rate the vehicle produced it.
+A bare filename is searched for in `logs/raw/` and then `backend/tests/fixtures/`.
+
+| Flag | Effect |
+|---|---|
+| `--speed 8` | Playback multiplier. Above ~x60 Windows' ~15 ms timer granularity dominates |
+| `--hold` | Keep the dashboard up after the capture ends, instead of exiting with it |
+| `--loop` | Repeat. Each pass restarts the vehicle clock and `seq`, as a reboot would |
+| `--interval 0.2` | Fixed gap, ignoring the vehicle clock entirely |
+
+Pacing comes from the capture's own `ms` field rather than a chosen interval, so the
+replay reproduces the cadence the vehicle actually ran at, irregularities included.
+
+**Replay adds no RSSI or SNR.** Those are measured by the ground station's radio as a
+packet arrives; a packet read from a file crossed no radio, so there is no measurement
+and both stay `null`. The status bar renders them as `—`. Inventing a plausible dBm
+figure would be a fabricated measurement on the operator's screen, which is the failure
+this project is organised against.
+
+Two consequences worth expecting before the dashboard looks broken:
+
+- **The captures in `tests/fixtures/` are bench runs, not flights.** Altitude stays
+  within ±1.2 m, the GPS never gets a fix (ISS-14), and the chute is never commanded.
+  They test parsing and transport, not the flight display.
+- **There is no loss figure yet.** The pipeline does not carry `seq`, `vehicle_ms` or
+  `crc_ok` until steps 2–3 of `wiki/decisions/dashboard-gen3-plan.md` are built, so
+  charts still run on the PC arrival clock.
+
+## What the mock simulates
 
 `MockSource` stands in for the CanSat, the LoRa link, the ground station and the USB
 hop — everything above the PC. It emits GEN2 lines with RSSI/SNR already appended, so
@@ -51,10 +85,15 @@ against the feed it will actually get. Use `--clean` only when isolating somethi
 
 ## Every simulated run is labelled
 
-- The raw log filename ends in `-mock.log`, so it can never be mistaken for a real
-  flight later.
+- The raw log filename ends in `-mock.log` or `-replay.log`, so it can never be mistaken
+  for a real flight later.
 - The `session` and every `frame` envelope carry `"simulated": true`.
 - The UI shows an unmissable banner.
 
 The worst outcome available in this project is somebody watching a simulated flight and
 believing it.
+
+Replay is the sharper version of that risk, because the data genuinely is real — it came
+off the vehicle. Only the liveness is false. That is exactly why `FileSource` sets
+`simulated = True` despite carrying authentic telemetry, and why the `EJECT` control
+reports failure during a replay rather than appearing to work.

@@ -1,5 +1,11 @@
 import type { TelemetryState } from '../hooks/useTelemetry'
-import { chutePresentation, formatAge, LINK_PRESENTATION, linkState } from '../lib/link'
+import {
+  chutePresentation,
+  formatAge,
+  formatMeasurement,
+  LINK_PRESENTATION,
+  linkState,
+} from '../lib/link'
 
 interface StatusBarProps {
   telemetry: TelemetryState
@@ -44,7 +50,7 @@ export function StatusBar({ telemetry, now }: StatusBarProps) {
       <div className="statusbar__item">
         <span className="label">RSSI</span>
         <span className="value numeric">
-          {latest ? latest.frame.rssi.toFixed(0) : '—'}
+          {formatMeasurement(latest?.frame.rssi, 0)}
           <span style={{ fontSize: '0.6em', color: 'var(--text-dim)' }}> dBm</span>
         </span>
       </div>
@@ -52,7 +58,7 @@ export function StatusBar({ telemetry, now }: StatusBarProps) {
       <div className="statusbar__item">
         <span className="label">SNR</span>
         <span className="value numeric">
-          {latest ? latest.frame.snr.toFixed(1) : '—'}
+          {formatMeasurement(latest?.frame.snr, 1)}
           <span style={{ fontSize: '0.6em', color: 'var(--text-dim)' }}> dB</span>
         </span>
       </div>

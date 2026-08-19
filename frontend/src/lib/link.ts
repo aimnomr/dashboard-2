@@ -36,6 +36,20 @@ export function formatAge(lastMessageAt: number | null, now: number): string {
   return `${minutes}m ${Math.floor(seconds % 60)}s`
 }
 
+/**
+ * Render a measurement that may not exist.
+ *
+ * RSSI and SNR are absent — not zero — whenever a packet did not cross a radio: read
+ * from an SD card, or replayed from a capture. Formatting null as 0 would show -0 dBm,
+ * the strongest reading on the scale, for a measurement nobody took.
+ */
+export function formatMeasurement(
+  value: number | null | undefined,
+  digits: number,
+): string {
+  return value === null || value === undefined ? '—' : value.toFixed(digits)
+}
+
 /** Chute has three states, not two. Null means unknown, never "safe". */
 export function chutePresentation(chute: number | null | undefined) {
   if (chute === 1) return { label: 'Deployed', icon: '◆', tone: 'alert' as const }
