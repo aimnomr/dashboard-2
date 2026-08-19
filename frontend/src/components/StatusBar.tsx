@@ -6,6 +6,7 @@ import {
   formatMeasurement,
   LINK_PRESENTATION,
   linkState,
+  lossPresentation,
 } from '../lib/link'
 
 interface StatusBarProps {
@@ -16,10 +17,11 @@ interface StatusBarProps {
 }
 
 export function StatusBar({ telemetry, now, view, onViewChange }: StatusBarProps) {
-  const { session, latest, lastMessageAt, counts, connection } = telemetry
+  const { session, latest, lastMessageAt, counts, connection, link: stats } = telemetry
   const state = linkState(lastMessageAt, now)
   const link = LINK_PRESENTATION[state]
   const chute = chutePresentation(latest?.frame.chute)
+  const loss = lossPresentation(stats)
 
   return (
     <div className="statusbar">
@@ -48,6 +50,17 @@ export function StatusBar({ telemetry, now, view, onViewChange }: StatusBarProps
           <span aria-hidden="true">{chute.icon}</span>
           {chute.label}
         </span>
+      </div>
+
+      {/* Rolling loss, because that is the figure worth acting on during descent (S3).
+          When no counter exists this reads "n/a — no counter", never 0%: a fabricated
+          zero is the same failure as deriving loss from rx_index. */}
+      <div className={`statusbar__item state-box state-box--${loss.tone}`}>
+        <span className="label">
+          Loss{loss.available && stats ? ` (${stats.rolling.window})` : ''}
+        </span>
+        <span className="value numeric">{loss.value}</span>
+        <span className="panel__footnote">{loss.detail}</span>
       </div>
 
       <div className="statusbar__item">

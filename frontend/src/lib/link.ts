@@ -1,4 +1,9 @@
-import { LINK_LOST_MS, LINK_STALE_MS, type LinkState } from '../types/telemetry'
+import {
+  LINK_LOST_MS,
+  LINK_STALE_MS,
+  type LinkState,
+  type LinkStats,
+} from '../types/telemetry'
 
 /**
  * Downlink freshness, from arrival time alone.
@@ -48,6 +53,38 @@ export function formatMeasurement(
   digits: number,
 ): string {
   return value === null || value === undefined ? '—' : value.toFixed(digits)
+}
+
+/**
+ * How to present packet loss.
+ *
+ * Rolling is the actionable figure and gets the prominence (S3): a single cumulative
+ * number hides a link that has just collapsed behind twenty good minutes. Session is the
+ * record, shown smaller.
+ *
+ * `null` stats means the generation carries no counter, and the answer is the word
+ * **unavailable** — never 0%. A fabricated zero is the same failure as deriving loss
+ * from `rx_index`, which is the thing `seq` exists to replace.
+ */
+export function lossPresentation(stats: LinkStats | null) {
+  if (stats === null) {
+    return {
+      value: 'n/a',
+      detail: 'no counter',
+      tone: 'unknown' as const,
+      available: false,
+    }
+  }
+
+  const rolling = stats.rolling.loss_pct
+  const tone = rolling >= 25 ? 'alert' : rolling >= 5 ? 'warn' : 'ok'
+
+  return {
+    value: `${rolling.toFixed(rolling >= 10 ? 0 : 1)}%`,
+    detail: `session ${stats.loss_pct.toFixed(1)}% · ${stats.lost} lost`,
+    tone: tone as 'ok' | 'warn' | 'alert',
+    available: true,
+  }
 }
 
 /** Chute has three states, not two. Null means unknown, never "safe". */

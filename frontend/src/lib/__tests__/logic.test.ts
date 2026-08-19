@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { computeAttitude } from '../attitude'
 import { hasFix, niceScale, toLocal } from '../geo'
-import { formatMeasurement } from '../link'
+import { formatMeasurement, lossPresentation } from '../link'
+import type { LinkStats } from '../../types/telemetry'
 import type { TelemetryFrame } from '../../types/telemetry'
 
 const base: TelemetryFrame = {
@@ -143,5 +144,52 @@ describe('absent measurements', () => {
     expect(formatMeasurement(9.33, 1)).toBe('9.3')
     // A genuine 0 dB SNR is a reading, not an absence, and must survive as one.
     expect(formatMeasurement(0, 1)).toBe('0.0')
+  })
+})
+
+describe('packet loss presentation', () => {
+  const stats = (over: Partial<LinkStats> = {}): LinkStats => ({
+    expected: 100, received: 100, lost: 0, loss_pct: 0,
+    rolling: { window: 60, expected: 60, received: 60, lost: 0, loss_pct: 0 },
+    crc_failed: 0, duplicates: 0, restarts: 0, baseline_seq: 1, last_seq: 100,
+    ...over,
+  })
+
+  it('says unavailable rather than 0% when there is no counter', () => {
+    // S5. GEN1 and GEN2 cannot produce a loss figure at all, and a reassuring 0% is the
+    // same fabrication as deriving one from rx_index.
+    const loss = lossPresentation(null)
+    expect(loss.available).toBe(false)
+    expect(loss.value).not.toContain('0')
+    expect(loss.detail).toBe('no counter')
+  })
+
+  it('leads with the rolling figure, not the session one', () => {
+    // S3. A cumulative number hides a link that has just collapsed behind twenty good
+    // minutes — and the collapse is the half worth acting on.
+    const loss = lossPresentation(stats({
+      loss_pct: 2,
+      rolling: { window: 60, expected: 60, received: 15, lost: 45, loss_pct: 75 },
+    }))
+    expect(loss.value).toBe('75%')
+    expect(loss.detail).toContain('session 2.0%')
+  })
+
+  it('escalates tone as the rolling figure worsens', () => {
+    const at = (loss_pct: number) =>
+      lossPresentation(stats({
+        rolling: { window: 60, expected: 60, received: 0, lost: 0, loss_pct },
+      })).tone
+
+    expect(at(0)).toBe('ok')
+    expect(at(12)).toBe('warn')
+    expect(at(60)).toBe('alert')
+  })
+
+  it('reports a genuine zero as a measurement', () => {
+    // Distinct from the unavailable case above: this link really did lose nothing.
+    const loss = lossPresentation(stats())
+    expect(loss.available).toBe(true)
+    expect(loss.value).toBe('0.0%')
   })
 })

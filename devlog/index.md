@@ -34,3 +34,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 029 · Replay source — captured flights through the full stack
 - 2026-08-19 · 030 · Channels view, three-axis IMU, and integrated yaw
 - 2026-08-19 · 031 · Reconcile ISS-08 and ISS-16, and correct frontend.md
+- 2026-08-19 · 032 · linkstats.py — real packet loss

@@ -40,6 +40,35 @@ export interface TelemetryFrame {
   snr: number | null
 }
 
+/** Loss over a bounded span of recent packets. */
+export interface LinkWindow {
+  /** Packets in the window, e.g. 60 — one minute at 1 Hz. */
+  window: number
+  expected: number
+  received: number
+  lost: number
+  loss_pct: number
+}
+
+export interface LinkStats {
+  /** Since the first packet this backend session saw — not since the vehicle booted. */
+  expected: number
+  received: number
+  lost: number
+  loss_pct: number
+  /**
+   * The actionable figure during descent. A single cumulative number hides a link that
+   * has just collapsed behind twenty good minutes.
+   */
+  rolling: LinkWindow
+  /** Frames rejected by their checksum. RF corruption, counted separately from loss. */
+  crc_failed: number
+  duplicates: number
+  restarts: number
+  baseline_seq: number
+  last_seq: number
+}
+
 export interface SessionMessage {
   type: 'session'
   source: string
@@ -80,6 +109,17 @@ export interface FrameMessage {
   vehicle_ms: number | null
   /** GEN3 only. Null means the generation carries no checksum, NOT that one passed. */
   crc_ok: boolean | null
+  /**
+   * Packet loss, computed by the backend.
+   *
+   * Null when the generation carries no counter and loss cannot be computed at all —
+   * the UI must then read "unavailable", never 0%.
+   *
+   * Never recompute this in the browser. The backend has seen the whole session; a
+   * client that connected late has not, and would show a different number for the same
+   * flight.
+   */
+  link: LinkStats | null
   raw: string
   ok: boolean
   frame: TelemetryFrame | null
@@ -110,11 +150,26 @@ export interface CommandAck {
   error?: string
 }
 
+/**
+ * The vehicle rebooted: its sequence counter went backwards.
+ *
+ * Sent as its own message, before the frame that revealed it, so the chart can break
+ * the trace rather than draw one segment across the discontinuity.
+ */
+export interface VehicleRestartMessage {
+  type: 'vehicle_restart'
+  previous_seq: number
+  new_seq: number
+  pc_time: string
+  simulated: boolean
+}
+
 export type ServerMessage =
   | SessionMessage
   | FrameMessage
   | StatusMessage
   | CommandAck
+  | VehicleRestartMessage
 
 /** A frame plus the moment it landed, for charting. */
 export interface FrameRecord {

@@ -4,6 +4,7 @@ import type {
   ConnectionState,
   FrameMessage,
   FrameRecord,
+  LinkStats,
   RawRecord,
   ServerMessage,
   SessionMessage,
@@ -21,6 +22,11 @@ export interface TelemetryState {
   /** Most recent successfully parsed frame. */
   latest: FrameRecord | null
   history: FrameRecord[]
+  /**
+   * Backend-computed packet loss. Null when the generation carries no counter, and the
+   * UI must render that as "unavailable" rather than 0%.
+   */
+  link: LinkStats | null
   raw: RawRecord[]
   /** Epoch ms of the last message of any kind, including malformed and status lines. */
   lastMessageAt: number | null
@@ -34,6 +40,7 @@ export function useTelemetry(url = wsUrl()): TelemetryState {
   const [session, setSession] = useState<SessionMessage | null>(null)
   const [latest, setLatest] = useState<FrameRecord | null>(null)
   const [history, setHistory] = useState<FrameRecord[]>([])
+  const [link, setLink] = useState<LinkStats | null>(null)
   const [raw, setRaw] = useState<RawRecord[]>([])
   const [lastMessageAt, setLastMessageAt] = useState<number | null>(null)
   const [counts, setCounts] = useState({ frames: 0, malformed: 0, status: 0 })
@@ -80,6 +87,18 @@ export function useTelemetry(url = wsUrl()): TelemetryState {
           case 'command_ack':
             setLastAck(message)
             break
+          case 'vehicle_restart':
+            // Surfaced in the raw feed as its own event. The charts break on their own,
+            // from the vehicle clock going backwards — but a reboot is a thing that
+            // happened, and it belongs in the record the operator scrolls through.
+            pushRaw({
+              id: rawIdRef.current++,
+              at: now,
+              text: `vehicle restart — seq ${message.previous_seq} → ${message.new_seq}`,
+              kind: 'status',
+              ok: true,
+            })
+            break
         }
       }
 
@@ -111,6 +130,10 @@ export function useTelemetry(url = wsUrl()): TelemetryState {
         ok: message.ok,
         error: message.error,
       })
+
+      // Taken from every frame including rejected ones: a checksum failure updates
+      // crc_failed, and the panel should show that as it happens.
+      setLink(message.link)
 
       if (!message.ok || message.frame === null) {
         // Malformed lines are counted and shown, never silently dropped — corruption
@@ -164,6 +187,7 @@ export function useTelemetry(url = wsUrl()): TelemetryState {
     session,
     latest,
     history,
+    link,
     raw,
     lastMessageAt,
     counts,

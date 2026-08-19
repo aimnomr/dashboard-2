@@ -154,6 +154,100 @@ def test_status_lines_carry_no_frame_fields():
     assert "seq" not in envelope
 
 
+# ------------------------------------------------------------- link accounting
+
+
+def test_gen3_envelope_carries_backend_owned_link_stats():
+    """Computed here, not in the browser.
+
+    A client that connects on packet 500 must read the same loss figure as one that
+    watched from packet 1. Only the backend has seen the whole session.
+    """
+    envelope = envelope_for(first_gen3_line())
+    link = envelope["link"]
+
+    assert link["expected"] == 1
+    assert link["received"] == 1
+    assert link["lost"] == 0
+    assert link["loss_pct"] == 0.0
+    assert link["rolling"]["window"] == 60
+
+
+def test_gen1_envelope_reports_link_as_null():
+    """S5. No counter, so no figure — and null rather than a reassuring zero."""
+    assert envelope_for(GEN1_LINE)["link"] is None
+
+
+def test_a_corrupt_frame_still_reports_link_stats():
+    """A checksum failure is link-quality information (S1), so the panel must update.
+
+    The frame is rejected; the *fact of* the rejection is not.
+    """
+    pipeline = Pipeline(_Source(), _NullLog(), Hub())
+    pipeline._envelope(first_gen3_line())
+    envelope = pipeline._envelope(first_gen3_line().replace("32.51", "82.51", 1))
+
+    assert envelope["ok"] is False
+    assert envelope["link"]["crc_failed"] == 1
+    # The corrupt frame's sequence number took no part in the arithmetic.
+    assert envelope["link"]["expected"] == 1
+
+
+def test_an_ordinary_line_produces_exactly_one_message():
+    pipeline = Pipeline(_Source(), _NullLog(), Hub())
+    assert len(pipeline._messages(first_gen3_line())) == 1
+
+
+def test_a_reboot_is_announced_before_the_frame_that_revealed_it():
+    """Order matters. Sent the other way round, the chart draws a segment across the
+    discontinuity before being told there was one."""
+    pipeline = Pipeline(_Source(), _NullLog(), Hub())
+
+    text = (FIXTURES / "FLIGHT22.CSV").read_text(encoding="utf-8")
+    packets = [ln for ln in text.splitlines() if ln.startswith("$")]
+
+    pipeline._messages(packets[5])          # seq 6
+    messages = pipeline._messages(packets[0])   # seq 1 — backwards
+
+    assert [m["type"] for m in messages] == ["vehicle_restart", "frame"]
+    assert messages[0]["previous_seq"] == 6
+    assert messages[0]["new_seq"] == 1
+    assert messages[0]["pc_time"]
+    # The frame itself is still delivered, now counting from the new baseline.
+    assert messages[1]["link"]["baseline_seq"] == 1
+    assert messages[1]["link"]["restarts"] == 1
+
+
+def test_a_clean_capture_reports_zero_loss_end_to_end():
+    """227 contiguous packets through the real pipeline. The figure has to be 0%.
+
+    This is the case that would look right whatever the arithmetic did, which is why it
+    is worth pinning: it catches an off-by-one in `expected` that the awkward cases in
+    test_linkstats.py would not.
+    """
+    from dashboard.sources.file_source import FileSource
+
+    async def collect():
+        source = FileSource(FIXTURES / "FLIGHT22.CSV", interval=0)
+        pipeline = Pipeline(source, _NullLog(), Hub())
+        out = []
+        async for line in source.lines():
+            out.extend(pipeline._messages(line))
+        return out
+
+    messages = asyncio.run(collect())
+    frames = [m for m in messages if m["type"] == "frame"]
+    link = frames[-1]["link"]
+
+    assert not [m for m in messages if m["type"] == "vehicle_restart"]
+    assert link["expected"] == 227
+    assert link["received"] == 227
+    assert link["lost"] == 0
+    assert link["loss_pct"] == 0.0
+    assert link["crc_failed"] == 0
+    assert link["rolling"]["loss_pct"] == 0.0
+
+
 def test_replayed_capture_produces_a_monotonic_vehicle_clock():
     """End to end over a real capture: 227 envelopes, clock strictly increasing.
 
