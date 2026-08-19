@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { computeAttitude } from '../attitude'
+import { attitudeWarning, computeAttitude, UNRELIABLE_CONFIRM } from '../attitude'
 import { hasFix, niceScale, toLocal } from '../geo'
 import { formatMeasurement, lossPresentation } from '../link'
-import type { LinkStats } from '../../types/telemetry'
+import type { FrameRecord, LinkStats } from '../../types/telemetry'
 import type { TelemetryFrame } from '../../types/telemetry'
 
 const base: TelemetryFrame = {
@@ -14,6 +14,53 @@ const base: TelemetryFrame = {
 }
 
 const frame = (over: Partial<TelemetryFrame>): TelemetryFrame => ({ ...base, ...over })
+
+const record = (over: Partial<TelemetryFrame>, i = 0): FrameRecord => ({
+  rxIndex: i, t: i * 1000, receivedAt: i * 1000, vehicleMs: i * 1000, seq: i,
+  frame: frame(over),
+})
+
+/** Sitting on a table: ~0.92 g on the long axis, as the real hardware reads. */
+const still = (i: number) => record({ ax: 0.004, ay: -0.002, az: 0.917 }, i)
+/** A single-frame sensor glitch of the kind three hardware logs are full of. */
+const glitch = (i: number) => record({ ax: 0.004, ay: -0.002, az: 0.365 }, i)
+
+describe('attitude warning is confirmed, not instant', () => {
+  it('ignores a lone bad frame', () => {
+    // The whole point. Every spurious "unreliable" across three hardware sessions was a
+    // single frame — 10 of 10 in one log — and each one blanked the panel for a second
+    // on a unit that was sitting still.
+    const history = [still(0), still(1), glitch(2)]
+    expect(computeAttitude(history[2].frame).reliable).toBe(false)
+    expect(attitudeWarning(history)).toBeNull()
+  })
+
+  it('warns once the condition persists', () => {
+    // Real boost and real freefall last many seconds, so they still warn.
+    expect(attitudeWarning([still(0), glitch(1), glitch(2)])).toBe('freefall')
+  })
+
+  it('clears on the first good frame, without waiting', () => {
+    // Asymmetric on purpose: "you can trust this again" is safer to be quick about.
+    expect(attitudeWarning([glitch(0), glitch(1), still(2)])).toBeNull()
+  })
+
+  it('says nothing before it has enough frames to judge', () => {
+    expect(attitudeWarning([])).toBeNull()
+    expect(attitudeWarning([glitch(0)])).toBeNull()
+  })
+
+  it('reports what is wrong now, not what was wrong first', () => {
+    const tumbling = record({ ax: 0.004, ay: -0.002, az: 0.917, gz: 200 }, 1)
+    expect(attitudeWarning([glitch(0), tumbling])).toBe('tumbling')
+  })
+
+  it('needs exactly UNRELIABLE_CONFIRM frames, so the constant is not decorative', () => {
+    const bad = Array.from({ length: UNRELIABLE_CONFIRM }, (_, i) => glitch(i))
+    expect(attitudeWarning(bad)).not.toBeNull()
+    expect(attitudeWarning(bad.slice(1))).toBeNull()
+  })
+})
 
 describe('GPS fix validity', () => {
   it('treats 0,0 as no fix', () => {

@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { Panel } from '../components/Panel'
 import { PoseView } from '../components/PoseView'
-import { computeAttitude } from '../lib/attitude'
+import { attitudeWarning, computeAttitude } from '../lib/attitude'
 import type { FrameRecord } from '../types/telemetry'
 
 type Mode = 'model' | 'horizon'
 
 interface AttitudePanelProps {
   latest: FrameRecord | null
+  history: FrameRecord[]
 }
 
-export function AttitudePanel({ latest }: AttitudePanelProps) {
+export function AttitudePanel({ latest, history }: AttitudePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const attitude = latest ? computeAttitude(latest.frame) : null
+  // The readouts above use `attitude` and stay instant. Only the claim that they cannot
+  // be trusted is confirmed across frames — see attitudeWarning().
+  const warning = attitudeWarning(history)
   // The model reads better for a body that can be at any orientation; the horizon is
   // the familiar instrument. Both are the same numbers, so this is a preference and
   // deliberately not persisted.
@@ -131,7 +135,7 @@ export function AttitudePanel({ latest }: AttitudePanelProps) {
           <PoseView
             pitch={attitude?.pitch ?? null}
             roll={attitude?.roll ?? null}
-            reliable={attitude?.reliable ?? true}
+            reliable={warning === null}
           />
         ) : (
           <div className="canvas-host attitude__dial">
@@ -163,10 +167,13 @@ export function AttitudePanel({ latest }: AttitudePanelProps) {
 
       {/* An accelerometer measures gravity plus vehicle acceleration. Under boost or in
           freefall the horizon is measuring thrust or nothing, so say so rather than
-          draw a confident attitude from meaningless numbers. */}
-      {attitude && !attitude.reliable && (
+          draw a confident attitude from meaningless numbers.
+
+          Confirmed across frames, not taken from the latest one: single-frame sensor
+          glitches were making this blink on a unit sitting still on a table. */}
+      {warning && (
         <div className="notice notice--warn">
-          <span aria-hidden="true">▲</span> Attitude unreliable — {attitude.reason}
+          <span aria-hidden="true">▲</span> Attitude unreliable — {warning}
         </div>
       )}
     </Panel>

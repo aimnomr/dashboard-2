@@ -1,4 +1,4 @@
-import type { TelemetryFrame } from '../types/telemetry'
+import type { FrameRecord, TelemetryFrame } from '../types/telemetry'
 
 export interface Attitude {
   /** Degrees. Positive = nose up. */
@@ -44,6 +44,50 @@ export function computeAttitude(frame: TelemetryFrame): Attitude {
   else if (magnitude > 1 + G_TOLERANCE) reason = 'under acceleration'
 
   return { pitch, roll, magnitude, spinRate, reliable: reason === null, reason }
+}
+
+// ------------------------------------------------------------------- confirmation
+
+/**
+ * Consecutive unreliable frames required before the warning is shown.
+ *
+ * Two, from measurement rather than taste. Across three hardware sessions with the unit
+ * sitting still on a table, every spurious `unreliable` was a **single** frame: 10 of 10
+ * in `20260819-225006`, 9 of 13 in `20260819-224339`. The genuinely sustained episode in
+ * `20260819-212959` ran for 163 consecutive frames. One sample of separation splits those
+ * two populations almost perfectly.
+ */
+export const UNRELIABLE_CONFIRM = 2
+
+/**
+ * Whether to tell the operator the attitude cannot be trusted.
+ *
+ * Deliberately separate from `computeAttitude()`, which stays pure and per-frame: pitch,
+ * roll and spin are readings and must never lag behind the data. This is a *claim about
+ * the readings*, and a claim that flickers is worse than no claim at all — an operator
+ * who has watched the warning blink on a stationary unit has learned to ignore it, which
+ * is precisely the opposite of what it exists for.
+ *
+ * The single-frame dropouts it suppresses are not physical. A CanSat on a table does not
+ * spend exactly one second at 0.365 g, or spin at 184 deg/s and stop; those are sensor
+ * glitches, and entry 045 records the firmware side. Real boost and real freefall last
+ * many seconds and still warn, one frame later than before.
+ *
+ * Returns the reason to display, or null when there is nothing to say.
+ */
+export function attitudeWarning(history: FrameRecord[]): string | null {
+  if (history.length < UNRELIABLE_CONFIRM) return null
+
+  const recent = history.slice(-UNRELIABLE_CONFIRM).map((r) => computeAttitude(r.frame))
+
+  // Every one of the last N must be bad. A single good frame clears the warning
+  // immediately — asymmetric on purpose, because "you can trust this again" is a safer
+  // thing to be quick about than "you cannot".
+  if (recent.some((a) => a.reliable)) return null
+
+  // The newest reason, not the oldest: if the vehicle went from tumbling to freefall the
+  // operator needs what is true now.
+  return recent[recent.length - 1].reason
 }
 
 // --------------------------------------------------------------------------- yaw

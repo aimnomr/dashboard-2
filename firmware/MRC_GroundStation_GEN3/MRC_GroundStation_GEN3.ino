@@ -42,7 +42,8 @@ int      lastChute      = -1;  /* -1 = not yet known */
 uint32_t lastPacketMs   = 0;   /* 0 = nothing received yet */
 
 /* uplink state — see Uplink.ino */
-bool     ejectPending   = false;
+/* No `ejectPending` any more: the burst is synchronous, so there is no state to
+ * carry between loop iterations. It was the retry loop's flag. See devlog 044. */
 bool     ejectConfirmed = false;
 uint8_t  ejectAttempts  = 0;
 

@@ -109,10 +109,23 @@ export function viewTransform(p: Vec3, elevationDeg = 22): Vec3 {
   // roll alone (its axis is normal to the mirror plane) and reverses pitch (its axis
   // lies in it), which is exactly the "roll matches, pitch doesn't" seen on hardware.
   // Screen right is therefore world -x, and the determinant is +1.
+  //
+  // The elevation signs are the THIRD fault in this one function, and the subtlest,
+  // because it survives every check the other two failed. Determinant +1, axes correct,
+  // nose at the top of the screen — and the camera still sat 22 deg BELOW the horizon
+  // rather than above it, so the tail cap faced the viewer and an upright can read as
+  // inverted. `se` therefore carries a minus in the screen-up row and a plus in depth:
+  //
+  //   right (0)  = (-1,   0,   0)
+  //   up    (y)  = ( 0, -se,  ce)
+  //   depth (z)  = ( 0,  ce,  se)   <- +se puts the nose nearer the viewer
+  //
+  // Any future change here should be checked against the whole camera basis, not one
+  // row of it. Three separate sign errors have now shipped in these nine numbers.
   return {
     x: -p.x,
-    y: p.y * se + p.z * ce,
-    z: p.y * ce - p.z * se,
+    y: p.z * ce - p.y * se,
+    z: p.y * ce + p.z * se,
   }
 }
 

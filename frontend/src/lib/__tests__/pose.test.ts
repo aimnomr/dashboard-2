@@ -161,6 +161,19 @@ describe('the camera is a rotation, not a mirror', () => {
   // Every test above passes just as happily under a reflection, which is why none of
   // them caught it. These two do not.
 
+  it('views the can from above, so the light nose cap faces the viewer', () => {
+    // The third camera bug. The transform can be a perfectly good right-handed rotation
+    // and still be on the wrong side of the horizon: with the elevation terms as they
+    // were, the camera sat 22 deg BELOW it, so an upright can presented its dark tail
+    // cap and read as inverted.
+    //
+    // Nose and tail are the only cue separating upright from inverted, which on a
+    // descending CanSat is the distinction worth seeing.
+    const faces = projectMesh(cylinderMesh(), 0, 0, 100)
+    const depth = (kind: string) => faces.find((f) => f.kind === kind)!.depth
+    expect(depth('nose')).toBeGreaterThan(depth('tail'))
+  })
+
   it('preserves handedness — determinant is +1', () => {
     // A reflection has determinant -1 and mirrors the whole scene. This is the single
     // assertion that would have caught the bug at the time it was written.

@@ -1,10 +1,33 @@
 /* ============================================================================
- *  Uplink — command intake from the PC, and the eject retry loop.
+ *  Uplink — command intake from the PC, and the eject burst.
  *
- *  Retry strategy: transmit once per received telemetry packet, because that is
- *  when the vehicle opens its listen window. A blind burst has a 40% chance per
- *  shot and leaves this unit deaf for over a second; timing it to follow a
- *  received packet is near-certain and costs 41 ms.
+ *  Retry strategy: a BURST on the serial command, spread wide enough to cover a
+ *  whole vehicle cycle. Carried back from MRC_GroundUnit_V3 (GEN2), which had
+ *  this right before GEN3 replaced it. See devlog 043 and 044.
+ *
+ *  The strategy this replaced transmitted once per received telemetry packet, on
+ *  the belief that "the vehicle's listen window has just opened". It has just
+ *  CLOSED: the vehicle listens first and transmits last, so the packet that
+ *  triggered the uplink is emitted at t~646 ms of its cycle and the window shut
+ *  at t=400. That put every transmission in the deaf period by construction,
+ *  which is why 15 retries in devlog 039 worked exactly as well as one.
+ *
+ *  Why a burst beats a better-timed single shot: it needs no phase estimate at
+ *  all. With attempts spaced under the listen window and spanning more than one
+ *  cycle, at least one lands inside the window whatever the phase — and the
+ *  vehicle's phase is known to move, since it reports its own cycle overruns and
+ *  resynchronises its cadence.
+ *
+ *      spacing <= LISTEN_WINDOW  and  span >= CYCLE_PERIOD  =>  guaranteed hit
+ *
+ *  At 300 ms spacing (~351 ms including airtime) against the vehicle's 400 ms
+ *  window and 1000 ms cycle, three consecutive attempts span 702 ms, wider than
+ *  the 600 ms deaf period, so three in a row cannot all miss.
+ *
+ *  IMPORTANT: that guarantee depends on the spacing staying under the vehicle's
+ *  LISTEN_WINDOW_MS. At 300 vs 400 ms the margin is 49 ms. Shortening the
+ *  vehicle's window without shortening EJECT_RETRY_MS turns this back into a
+ *  probability, silently.
  * ========================================================================= */
 
 static char    serialLine[SERIAL_LINE_BUF];
@@ -64,14 +87,8 @@ void handleCommand(const char *line) {
       Serial.println("[GCS] EJECT already confirmed, ignoring");
       return;
     }
-    if (ejectPending) {
-      Serial.println("[GCS] EJECT already armed");
-      return;
-    }
-    ejectPending   = true;
-    ejectConfirmed = false;
-    ejectAttempts  = 0;
     Serial.println("[GCS] EJECT armed");
+    fireEjectBurst();
     return;
   }
 
@@ -80,52 +97,68 @@ void handleCommand(const char *line) {
 }
 
 /* --------------------------------------------------------------------------
+ *  Transmit EJECT as a burst, wide enough to cover a whole vehicle cycle.
+ *
+ *  Blocks for about 1.4 s, during which one or two telemetry packets are missed.
+ *  That is the trade and it is the right way round: losing a packet while
+ *  commanding recovery costs a row in a log, and missing the listen window costs
+ *  the parachute. radioTransmit() restores receive after every attempt, so the
+ *  gap is only the airtime, not the whole burst.
+ * ----------------------------------------------------------------------- */
+void fireEjectBurst() {
+  for (uint8_t i = 0; i < EJECT_ATTEMPTS; i++) {
+    /* Stop early if the vehicle has already reported it. radioPoll() keeps
+     * lastChute current between attempts, since receive is restored each time.
+     *
+     * NOTE: chute >= 1 means the vehicle received the command and drove the
+     * servo. It does NOT mean the parachute opened — there is no feedback
+     * sensor. Nothing downstream may claim otherwise. */
+    if (lastChute >= 1) {
+      ejectConfirmed = true;
+      Serial.print("[GCS] EJECT confirmed after ");
+      Serial.print(i);
+      Serial.println(" attempt(s)");
+      return;
+    }
+
+    ejectAttempts++;
+    bool sent = radioTransmit(EJECT_TOKEN);
+
+    Serial.print("[GCS] EJECT attempt ");
+    Serial.print(i + 1);
+    Serial.print("/");
+    Serial.print(EJECT_ATTEMPTS);
+    Serial.println(sent ? "" : " FAILED TO TRANSMIT");
+
+    /* Keep receiving during the gap rather than sleeping through it: a
+     * confirmation may land here, and it is what stops the burst early. */
+    uint32_t until = millis() + EJECT_RETRY_MS;
+    while ((int32_t)(until - millis()) > 0) {
+      radioPoll();
+      delay(LOOP_TICK_MS);
+    }
+  }
+
+  Serial.print("[GCS] EJECT burst complete, ");
+  Serial.print(EJECT_ATTEMPTS);
+  Serial.println(" sent - watch chute in telemetry");
+}
+
+/* --------------------------------------------------------------------------
  *  Called from Radio.ino immediately after a telemetry packet is forwarded.
- *  The vehicle's listen window has just opened.
+ *
+ *  Only PING still rides on packet arrival, and only because a ping is a single
+ *  shot with nothing to confirm it. With the flight unit listening through the
+ *  back half of its cycle (devlog 044) this moment is now INSIDE the window
+ *  rather than 246 ms after it closed.
  * ----------------------------------------------------------------------- */
 void uplinkOnPacketReceived() {
-  /* A queued ping goes first and only once. Same timing logic as eject: the
-   * vehicle's listen window has just opened. */
-  if (pingPending) {
-    pingPending = false;
-    pingsSent++;
-    bool sent = radioTransmit(PING_TOKEN);
-    Serial.print("[GCS] PING sent");
-    Serial.println(sent ? " - no acknowledgement exists, check the vehicle's screen"
-                        : " FAILED TO TRANSMIT");
-    return;   /* one transmission per window; eject retries on the next packet */
-  }
+  if (!pingPending) return;
 
-  if (!ejectPending || ejectConfirmed) return;
-
-  /* Confirmation first: the packet we just received may already carry it, in
-   * which case transmitting again would be pointless noise on a shared band.
-   *
-   * NOTE: chute >= 1 means the vehicle received the command and drove the
-   * servo. It does NOT mean the parachute opened — there is no feedback sensor.
-   * Nothing downstream may claim otherwise. */
-  if (lastChute >= 1) {
-    ejectConfirmed = true;
-    ejectPending   = false;
-    Serial.print("[GCS] EJECT confirmed after ");
-    Serial.print(ejectAttempts);
-    Serial.println(" attempt(s)");
-    return;
-  }
-
-  if (ejectAttempts >= EJECT_MAX_ATTEMPTS) {
-    ejectPending = false;
-    Serial.print("[GCS] EJECT gave up after ");
-    Serial.println(EJECT_MAX_ATTEMPTS);
-    return;
-  }
-
-  ejectAttempts++;
-  bool sent = radioTransmit(EJECT_TOKEN);
-
-  Serial.print("[GCS] EJECT attempt ");
-  Serial.print(ejectAttempts);
-  Serial.print("/");
-  Serial.print(EJECT_MAX_ATTEMPTS);
-  Serial.println(sent ? "" : " FAILED TO TRANSMIT");
+  pingPending = false;
+  pingsSent++;
+  bool sent = radioTransmit(PING_TOKEN);
+  Serial.print("[GCS] PING sent");
+  Serial.println(sent ? " - no acknowledgement exists, check the flight unit's USB serial"
+                      : " FAILED TO TRANSMIT");
 }

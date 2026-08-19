@@ -34,16 +34,32 @@
 #define SERIAL_LINE_BUF   64
 
 /* ---- UPLINK ---------------------------------------------------------------
- * The eject command is transmitted immediately after a telemetry packet is
- * received, because that is exactly when the vehicle opens its listen window.
- * Retries continue once per received packet until the vehicle reports chute >= 1.
+ * The eject command is transmitted as a BURST, starting the moment the command
+ * arrives over serial: EJECT_ATTEMPTS transmissions EJECT_RETRY_MS apart. The
+ * burst is timed to cover a whole vehicle cycle rather than to hit a particular
+ * moment in it, so it needs no estimate of where the vehicle is in its cycle.
  *
- * There is deliberately no cancel command. Once fired, the retry loop runs to
- * EJECT_MAX_ATTEMPTS and cannot be stopped short of power-cycling this unit.
+ * The previous scheme fired one shot per received telemetry packet, believing
+ * that was when the vehicle opened its listen window. It is when the window has
+ * just closed, and 45 transmissions across two hardware sessions were never
+ * heard. See devlog 039, 043 and 044.
+ *
+ * TIMING CONSTRAINT, and it is load-bearing:
+ *
+ *   EJECT_RETRY_MS + airtime  <=  vehicle LISTEN_WINDOW_MS   (351 <= 400)
+ *   (EJECT_ATTEMPTS-1) * spacing  >=  vehicle CYCLE_PERIOD_MS (1404 >= 1000)
+ *
+ * Both hold against the GEN3 flight unit. Shorten the vehicle's listen window
+ * below ~351 ms, or reduce EJECT_ATTEMPTS below 4, and the guarantee degrades
+ * to a probability without anything failing loudly.
+ *
+ * There is deliberately no cancel command. Once fired, the burst runs to
+ * completion and cannot be stopped short of power-cycling this unit.
  */
 #define CMD_EJECT         "CMD:EJECT"
 #define EJECT_TOKEN       "EJECT"
-#define EJECT_MAX_ATTEMPTS 15
+#define EJECT_ATTEMPTS     5
+#define EJECT_RETRY_MS   300
 
 /* PING proves the uplink works WITHOUT firing the parachute. Pre-launch, one
  * person watches the sealed flight unit's OLED while another sends this; the

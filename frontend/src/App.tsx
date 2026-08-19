@@ -35,7 +35,7 @@ export default function App() {
         <main className="grid">
           <AltitudePanel history={telemetry.history} latest={telemetry.latest} />
           <GroundTrackPanel history={telemetry.history} latest={telemetry.latest} />
-          <AttitudePanel latest={telemetry.latest} />
+          <AttitudePanel latest={telemetry.latest} history={telemetry.history} />
           <GpsPanel latest={telemetry.latest} />
           <SpeedPanel history={telemetry.history} latest={telemetry.latest} />
           <EnvironmentPanel history={telemetry.history} latest={telemetry.latest} />

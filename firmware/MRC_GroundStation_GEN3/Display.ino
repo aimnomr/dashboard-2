@@ -73,8 +73,10 @@ void displayUpdate() {
 
   if (ejectConfirmed) {
     snprintf(l4, sizeof(l4), "EJECT CONFIRMED");
-  } else if (ejectPending) {
-    snprintf(l4, sizeof(l4), "EJECT %d/%d", ejectAttempts, EJECT_MAX_ATTEMPTS);
+  } else if (ejectAttempts > 0) {
+    /* The burst is synchronous, so this is never seen mid-flight; it reports the
+     * total sent so far, which is what matters once the burst has returned. */
+    snprintf(l4, sizeof(l4), "EJECT sent x%d", ejectAttempts);
   } else if (pingPending) {
     snprintf(l4, sizeof(l4), "PING queued...");
   } else if (pingsSent > 0) {

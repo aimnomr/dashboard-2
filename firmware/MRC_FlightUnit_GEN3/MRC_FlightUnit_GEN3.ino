@@ -132,6 +132,22 @@ void loop() {
 
   int txState = radio.transmit(packetBuf);
 
+  /* ---- 3b. RE-ARM THE RECEIVER — before the SD write, not after -----------
+   * The ground station transmits about 10-15 ms after this packet lands (its
+   * readData, RSSI/SNR, a ~100 byte serial println at 115200, then the CRC).
+   * Arming here puts the radio in receive at roughly t=647 ms, well before the
+   * uplink preamble arrives.
+   *
+   * Order is the whole point. The SX1262 receives autonomously once armed and
+   * holds the packet until it is read, so the SD write costs nothing — but only
+   * if the radio is already listening when the preamble starts. Arming after
+   * storageWrite() would put the card's open/append/close in front of exactly
+   * the window the ground station uses, which is the same bug in a new place.
+   *
+   * The two are on separate SPI buses (LoRa on the default, SD on HSPI via
+   * sdSPI), so nothing is contended by having receive live across the write. */
+  if (ENABLE_UPLINK) radioArmReceive();
+
 #if ENABLE_SERIAL_ECHO
   Serial.println(packetBuf);
   if (txState != RADIOLIB_ERR_NONE) {
@@ -172,7 +188,11 @@ void loop() {
     }
   }
 
-  holdUntil(nextCycleAt);
+  /* ---- 7. HOLD, LISTENING ------------------------------------------------
+   * This used to be a blind delay, and it was the largest deaf stretch in the
+   * cycle: 354 ms of every 1000, immediately after the transmit — which is
+   * precisely when the ground station sends. See devlog 044. */
+  holdUntilListening(nextCycleAt);
 }
 
 /* Wait for a deadline while keeping the GPS parser fed. Returns immediately if
@@ -182,5 +202,27 @@ void holdUntil(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
     delay(1);
+  }
+}
+
+/* Hold to a deadline while both feeding the GPS and servicing the uplink.
+ *
+ * Commands can now arrive anywhere in the back half of the cycle, so they are
+ * dispatched here as well as in the front window — through the same
+ * radioServiceUplink() in both places, never a second copy of the token
+ * matching. chuteFire() is idempotent, so a command landing here needs no
+ * special handling relative to one landing in the window. */
+void holdUntilListening(uint32_t deadlineMs) {
+  while ((int32_t)(deadlineMs - millis()) > 0) {
+    gpsFeed();
+
+    if (ENABLE_UPLINK && radioServiceUplink()) {
+      chuteCommands++;
+      chuteFire();
+      Serial.print("[FLT] EJECT received, count ");
+      Serial.println(chuteCommands);
+    }
+
+    delay(LISTEN_TICK_MS);
   }
 }

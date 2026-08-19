@@ -46,3 +46,5 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 041 · Yaw removed, and the pose model was mirrored
 - 2026-08-19 · 042 · The GPS fault was swapped TX/RX after all
 - 2026-08-19 · 043 · The GEN2 ground unit was found, and it solved the uplink problem already
+- 2026-08-19 · 044 · Uplink timing fixed at both ends
+- 2026-08-19 · 045 · The attitude warning flickered, and the camera was below the horizon
