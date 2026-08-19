@@ -1,22 +1,27 @@
-"""The self-describing log header.
+"""The `.meta.json` packet contract written beside every raw log.
 
 A `.log` outlives its session and usually the person who made it. These tests are mostly
-about the header staying TRUE — a contract that drifts from the parser is worse than no
-contract, because it is believed.
+about the contract staying TRUE — one that drifts from the parser is worse than none,
+because it is believed.
+
+They also pin the SCOPE, which was a deliberate decision rather than an oversight: current
+wire format only. See `test_scope_is_the_current_wire_format_only`.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
 
-from dashboard.contract import CONTRACT_VERSION, packet_contract
+from dashboard.contract import CONTRACT_VERSION, contract, dumps
 from dashboard.parser import (
     FIELD_DOC,
     GEN3_EXTENDED_FIELDS,
     GEN3_LINK_FIELDS,
     GEN3_VEHICLE_FIELDS,
+    crc16_ccitt,
     parse_line,
 )
 
@@ -24,15 +29,18 @@ ALL_FIELDS = (*GEN3_VEHICLE_FIELDS, *GEN3_EXTENDED_FIELDS, *GEN3_LINK_FIELDS)
 
 
 @pytest.fixture(scope="module")
-def header() -> str:
-    return packet_contract("serial", datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc))
+def meta() -> dict:
+    return contract("serial", datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc))
+
+
+# ------------------------------------------------------------------ drift guards
 
 
 def test_field_doc_covers_every_field():
-    """The drift guard, and the reason the header is generated rather than written.
+    """Adding a field to the wire without documenting it fails here.
 
-    Adding a field to the wire format without documenting it fails here, so the logs
-    cannot quietly fall behind the parser the way documentation usually does.
+    The reason the contract is generated rather than written: documentation maintained
+    separately from the parser is wrong within two revisions.
     """
     missing = [f for f in ALL_FIELDS if f not in FIELD_DOC]
     assert not missing, f"undocumented fields: {missing}"
@@ -44,139 +52,171 @@ def test_field_doc_has_no_fields_that_do_not_exist():
     assert not extra, f"documented but not on the wire: {extra}"
 
 
-def test_every_line_is_a_comment(header: str):
-    """The whole reason this is safe to put inside the log."""
-    for ln in header.splitlines():
-        assert ln.startswith("#"), f"non-comment line in header: {ln!r}"
+# ------------------------------------------------------------------ shape
 
 
-def test_the_parser_skips_the_entire_header(header: str):
-    """Replay must read straight through it — nothing to strip, nothing rejected."""
-    for ln in header.splitlines():
-        result = parse_line(ln)
-        assert result.kind == "status", f"header line parsed as {result.kind}: {ln!r}"
-        assert result.ok
+def test_it_is_valid_json_and_round_trips(meta: dict):
+    assert json.loads(dumps(meta)) == meta
 
 
-def test_header_names_every_field(header: str):
-    for name in ALL_FIELDS:
-        assert f" {name} " in header or f" {name:<6}" in header, f"{name} missing"
+def test_fields_are_in_wire_order_with_contiguous_indices(meta: dict):
+    for offset, entry in enumerate(meta["fields"]):
+        assert entry["i"] == offset + 1
+        assert entry["name"] == ALL_FIELDS[offset]
 
 
-def test_header_carries_the_contract_version(header: str):
-    assert CONTRACT_VERSION in header
+def test_a_reader_can_zip_the_contract_against_a_real_packet(meta: dict):
+    """The access pattern the array ordering was chosen for.
 
-
-def test_header_warns_about_the_sentinels_that_look_like_data(header: str):
-    """The traps someone reading raw numbers cannot infer, and would get wrong."""
-    assert "0.00000" in header and "NO FIX" in header      # not a position off Africa
-    assert "never 0" in header or "never a perfect fix" in header   # hdop 0
-    assert "-1" in header                                   # fixq not reported
-
-
-def test_header_does_not_claim_the_chute_confirms_deployment(header: str):
-    """S8. The one statement this project must never make, on any surface.
-
-    Checked as a property rather than by banning the word: the header is *required* to
-    say "never deployed", so a naive substring ban would fail on the very disclaimer it
-    exists to enforce. What must not appear is the word standing alone as a claim.
+    This is the whole promise of the sidecar: split a line, zip it against `fields`, and
+    every value has a name, a unit and a meaning without opening the codebase.
     """
-    lowered = header.lower()
-    assert "commanded" in lowered and "never deployed" in lowered
+    body = ("MRC,7,7000,29.73,75.1,1013.35,-0.2,0.002,-0.001,0.911,"
+            "-0.10,0.21,-0.01,2.92717,101.76009,1.6,9,0,4,1.2,1")
+    packet = f"${body}*{crc16_ccitt(body.encode()):04X},-33.0,12.5"
 
-    for ln in lowered.splitlines():
-        if "deployed" in ln:
-            assert "never deployed" in ln, f"unqualified deployment claim: {ln!r}"
-        if "deployment" in ln:
-            assert "not deployment" in ln, f"unqualified deployment claim: {ln!r}"
+    values = packet.split("*")[0].split(",")[1:] + packet.split("*")[1].split(",")[1:]
+    named = {f["name"]: v for f, v in zip(meta["fields"], values)}
+
+    assert len(values) == len(meta["fields"])
+    assert named["lat"] == "2.92717"
+    assert named["hdop"] == "1.2"
+    assert named["chute"] == "0"
+    assert named["snr"] == "12.5"
 
 
-def test_header_is_written_once_and_before_any_telemetry(tmp_path):
+def test_sentinels_are_attached_to_the_fields_that_have_them(meta: dict):
+    by_name = {f["name"]: f for f in meta["fields"]}
+    assert by_name["lat"]["sentinel"] == {"value": 0.0, "means": "no fix"}
+    assert by_name["fixq"]["sentinel"]["value"] == -1
+    assert by_name["hdop"]["sentinel"]["value"] == 0.0
+    # A field with nothing to disclaim carries no sentinel key at all.
+    assert "sentinel" not in by_name["temp"]
+
+
+def test_link_fields_are_marked_as_outside_the_checksum(meta: dict):
+    assert meta["packet"]["outside_checksum"] == list(GEN3_LINK_FIELDS)
+    by_name = {f["name"]: f for f in meta["fields"]}
+    for name in GEN3_LINK_FIELDS:
+        assert "after the checksum" in by_name[name]["note"]
+
+
+def test_checksum_is_described_precisely_enough_to_reimplement(meta: dict):
+    crc = meta["packet"]["checksum"]
+    assert crc["poly"] == "0x1021"
+    assert crc["init"] == "0xFFFF"
+    assert crc["reflect"] is False
+    assert crc["xorout"] == "0x0000"
+    assert "between $ and *" in crc["covers"]
+
+
+def test_contract_version_is_present(meta: dict):
+    assert meta["contract"] == CONTRACT_VERSION
+
+
+# ------------------------------------------------------------------ scope
+
+
+def test_scope_is_the_current_wire_format_only(meta: dict):
+    """Pins four deliberate exclusions, so none is re-added by reflex.
+
+    The sidecar is written once at open and never revisited. Anything transient in it is
+    frozen at that moment and quietly wrong forever after — which is worse than absent,
+    because a file that looks authoritative gets believed.
+    """
+    blob = dumps(meta)
+    assert "GEN1" not in blob and "GEN2" not in blob   # legacy field lists
+    assert "range" not in blob                          # plausibility bounds: UI policy
+    assert "caveat" not in blob                         # hardware faults: they get fixed
+    assert "observed" not in blob                       # close-time stats: never rewritten
+
+
+def test_no_field_note_describes_a_transient_hardware_fault(meta: dict):
+    """`note` explains the encoding, never the state of one airframe.
+
+    "az reads ~0.92 g on the current unit" was in an earlier draft. It belongs in the
+    devlog, where it can be corrected when the sensor is.
+    """
+    for entry in meta["fields"]:
+        note = entry.get("note", "").lower()
+        for banned in ("current unit", "spike", "unresolved", "suspected", "faulty"):
+            assert banned not in note, f"{entry['name']}: transient claim {note!r}"
+
+
+def test_the_chute_note_never_claims_deployment(meta: dict):
+    """S8. The one statement this project must not make, on any surface."""
+    note = next(f for f in meta["fields"] if f["name"] == "chute")["note"].lower()
+    assert "commanded" in note
+    assert "never confirms deployment" in note
+
+
+# ------------------------------------------------------------------ on disk
+
+
+def test_the_log_itself_stays_byte_faithful(tmp_path):
+    """No header, no comments, nothing but what arrived.
+
+    A header block was tried on 2026-08-20 and reverted the same day: the log's entire
+    value is being a faithful byte record, and prose is the wrong shape for the job.
+    """
     from dashboard.rawlog import RawLog
 
+    packet = "$MRC,1,1000,20,50,1013,0,0,0,1,0,0,0,0,0,0,0,0,0,0.0,-1*0000"
     log = RawLog.create(tmp_path, "serial")
-    log.write("$MRC,1,1000,20.0,50.0,1013.0,0.0,0,0,1,0,0,0,0,0,0,0,0,0,0.0,-1*0000")
+    log.write(packet)
     log.close()
 
-    text = log.path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-
-    comment_count = sum(1 for ln in lines if ln.startswith("#"))
-    first_data = next(i for i, ln in enumerate(lines) if not ln.startswith("#"))
-
-    # Every comment line precedes every data line: the header is a block at the top,
-    # not something interleaved per write.
-    assert all(lines[i].startswith("#") for i in range(first_data))
-    assert not any(ln.startswith("#") for ln in lines[first_data:])
-    assert comment_count == first_data
+    assert log.path.read_text(encoding="utf-8") == packet + "\n"
 
 
-def test_sidecar_still_exists_and_names_the_contract(tmp_path):
-    """The header is for people; the sidecar is for programs. Both, not either."""
-    import json
-
+def test_the_sidecar_lands_next_to_the_log_and_parses(tmp_path):
     from dashboard.rawlog import RawLog
 
     log = RawLog.create(tmp_path, "mock")
     log.close()
 
-    meta = json.loads(log.path.with_suffix(".meta.json").read_text(encoding="utf-8"))
-    assert meta["contract"] == CONTRACT_VERSION
-    assert meta["source"] == "mock"
+    sidecar = log.path.with_suffix(".meta.json")
+    assert sidecar.exists()
+
+    data = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert data["source"] == "mock"
+    assert data["contract"] == CONTRACT_VERSION
+    assert len(data["fields"]) == len(ALL_FIELDS)
 
 
-def test_a_written_log_replays_cleanly(tmp_path):
-    """End to end: header plus real packets, read back through the parser."""
-    from dashboard.parser import crc16_ccitt
+def test_the_sidecar_is_not_rewritten_when_the_log_closes(tmp_path):
+    """Written once at open. No close-time rewrite means no half-written state."""
     from dashboard.rawlog import RawLog
 
-    body = ("MRC,7,7000,29.73,75.1,1013.35,-0.2,0.002,-0.001,0.911,"
-            "-0.10,0.21,-0.01,2.92717,101.76009,1.6,9,0,4,1.2,1")
-    packet = f"${body}*{crc16_ccitt(body.encode()):04X}"
-
     log = RawLog.create(tmp_path, "serial")
-    log.write(packet)
-    log.write("[GCS] EJECT armed")
+    sidecar = log.path.with_suffix(".meta.json")
+    before = sidecar.read_bytes()
+
+    log.write("$MRC,1,1000,20,50,1013,0,0,0,1,0,0,0,0,0,0,0,0,0,0.0,-1*0000")
     log.close()
 
-    frames, statuses = 0, 0
-    for ln in log.path.read_text(encoding="utf-8").splitlines():
-        result = parse_line(ln)
-        assert result.ok, f"line rejected on replay: {ln!r}"
-        if result.kind == "frame":
-            frames += 1
-        elif result.kind == "status":
-            statuses += 1
-
-    assert frames == 1
-    assert statuses > 1        # the header plus the [GCS] line
+    assert sidecar.read_bytes() == before
 
 
-def test_a_header_never_consumes_replay_cadence(tmp_path):
-    """A 167-line header must not delay a replay, in EITHER pacing mode.
+def test_status_lines_never_consume_replay_cadence():
+    """Independent of the sidecar, and worth keeping from the reverted header work.
 
-    Under fixed-interval pacing this cost 167 intervals before the first packet —
-    nearly three minutes of an empty dashboard at `--interval 1`. The clock-paced
-    branch was already correct; the interval branch was not.
+    A `[GCS]` line arrives BETWEEN packets on a real link, never instead of one, so it
+    must not occupy a slot in the cadence. The clock-paced branch already knew this; the
+    fixed-interval branch did not, and paced every line equally.
     """
     from dashboard.sources.file_source import FileSource
 
     src = FileSource.__new__(FileSource)
     src.speed = 1.0
 
-    header_line = "# contract   GEN3.1 (2026-08-20)"
-    gcs_line = "[GCS] EJECT armed"
-
     for interval in (None, 1.0):
         src.interval = interval
-        for line in (header_line, gcs_line):
-            delay, _ = src._delay_before(line, previous_ms=5000)
-            assert delay == 0.0, f"{line!r} delayed {delay}s at interval={interval}"
+        delay, _ = src._delay_before("[GCS] EJECT armed", previous_ms=5000)
+        assert delay == 0.0, f"status line delayed {delay}s at interval={interval}"
 
-    # A real frame still paces normally under a fixed interval.
     src.interval = 1.0
     body = "MRC,2,6000,20,50,1013,0,0,0,1,0,0,0,0,0,0,0,0,0,0.0,-1"
-    from dashboard.parser import crc16_ccitt
     packet = f"${body}*{crc16_ccitt(body.encode()):04X}"
     delay, _ = src._delay_before(packet, previous_ms=5000)
     assert delay == 1.0

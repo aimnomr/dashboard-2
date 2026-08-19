@@ -14,12 +14,11 @@ Competition flights do not get a second attempt.
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .contract import CONTRACT_VERSION, packet_contract
+from .contract import contract, dumps
 
 
 class RawLog:
@@ -46,51 +45,27 @@ class RawLog:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         started = datetime.now(timezone.utc)
         log = cls(Path(log_dir) / "raw" / f"{stamp}-{source_name}.log")
-        log._write_header(source_name, started)
-        log._write_sidecar(source_name, stamp, started)
+        log._write_sidecar(source_name, started)
         return log
 
-    def _write_header(self, source_name: str, started: datetime) -> None:
-        """The packet contract, in the log itself.
+    def _write_sidecar(self, source_name: str, started: datetime) -> None:
+        """The packet contract, beside the log and machine-readable.
 
-        Reverses the original decision to keep the log byte-faithful with metadata only
-        in the sidecar. The reason it is safe now, and was not obviously safe then: every
-        header line starts with '#', and `parse_line()` already classifies those as
-        status lines because the vehicle's own SD logs use them. A replay reads straight
-        through. Nothing has to be stripped, and no consumer needs to know the header
-        exists.
+        NOT inside the log. A header block was tried on 2026-08-20 and reverted the same
+        day (devlog 049, 050): it cost 167 lines of prose in a file whose entire value is
+        being a faithful byte record, and prose is the wrong shape for the job anyway —
+        anything reading this wants `fields[13]["name"]`, not a paragraph to grep.
 
-        The reason it is worth doing: a sidecar is a separate file, and separate files
-        get lost. A log copied to a USB stick, pasted into a chat, or attached to a
-        competition submission arrives alone, and then nobody can tell whether column 14
-        is a longitude or a sentinel. The contract belongs where the data is.
+        Written ONCE, when the log opens, and never revisited. That is what makes it
+        durable: no close-time rewrite to be interrupted, no half-written state after a
+        power loss, and the log alone is still the record if this file is lost.
 
-        Written before any telemetry, and never again - not per line, not per rotation.
+        It is also why the content is restricted to the current wire format. Anything
+        transient — sensor faults, plausibility thresholds, observed statistics — would
+        be frozen at open and quietly wrong forever after.
         """
-        self._fh.write(packet_contract(source_name, started) + "\n")
-        self._fh.flush()
-        os.fsync(self._fh.fileno())
-
-    def _write_sidecar(self, source_name: str, stamp: str, started: datetime) -> None:
-        """Machine-readable run metadata, beside the log.
-
-        Kept after the header moved into the log itself: this one is for programs, the
-        header is for people. Duplicating the few fields they share costs nothing and
-        means neither has to be parsed to get at the other.
-        """
-        meta = {
-            "source": source_name,
-            "started_at": started.isoformat(),
-            "local_stamp": stamp,
-            "contract": CONTRACT_VERSION,
-            "note": (
-                "Raw serial lines exactly as received, including malformed and [GCS] "
-                "lines. The file opens with a '#'-prefixed packet contract; the parser "
-                "treats those as status lines, so it replays without stripping anything."
-            ),
-        }
         self.path.with_suffix(".meta.json").write_text(
-            json.dumps(meta, indent=2), encoding="utf-8"
+            dumps(contract(source_name, started)), encoding="utf-8"
         )
 
     @property

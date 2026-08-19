@@ -52,3 +52,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-20 · 047 · The receiver's own fix verdict is now read
 - 2026-08-20 · 048 · GEN3.1 — `ul`, `hdop` and `fixq` added to the packet
 - 2026-08-20 · 049 · Raw logs now explain themselves
+- 2026-08-20 · 050 · The contract belongs in the sidecar, not the log

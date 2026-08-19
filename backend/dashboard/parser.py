@@ -78,48 +78,55 @@ _COMMON_FIELDS = (
 GEN2_FIELDS = (*_COMMON_FIELDS, "chute", "rssi", "snr")   # 17
 GEN1_FIELDS = (*_COMMON_FIELDS, "rssi", "snr")            # 16
 
-#: Human-readable contract for every field, rendered into the header of each raw log
-#: so a .log file explains itself without the codebase. `(unit, printf, meaning)`.
+#: The packet contract, one entry per field, rendered into each log's .meta.json.
 #:
-#: This is the single source of truth for that header. `test_field_doc_covers_every_field`
-#: fails if a field is added to the tuples above without an entry here, which is what
-#: stops the logs drifting away from the parser the way documentation usually does.
-FIELD_DOC: dict[str, tuple[str, str, str]] = {
-    "seq":   ("-",      "%lu",  "packet counter since VEHICLE boot. Restarts at 1 on reboot. "
-                                "Not a loss metric by itself - see the link stats"),
-    "ms":    ("ms",     "%lu",  "millis() since vehicle boot, at the moment of sampling. This is "
-                                "the clock to derive rates from; arrival time carries link jitter"),
-    "temp":  ("degC",   "%.2f", "BME280 air temperature"),
-    "hum":   ("%RH",    "%.1f", "BME280 relative humidity. Sensor accuracy is +/-3%, so the "
-                                "first decimal is precision, not accuracy"),
-    "pres":  ("hPa",    "%.2f", "BME280 barometric pressure. The altitude source"),
-    "alt":   ("m",      "%.1f", "RELATIVE TO BOOT ALTITUDE, not above sea level. Zeroed during "
-                                "startup calibration, so negative values are normal"),
-    "ax":    ("g",      "%.3f", "MPU6050 accel X, +/-8 g range"),
-    "ay":    ("g",      "%.3f", "MPU6050 accel Y"),
-    "az":    ("g",      "%.3f", "MPU6050 accel Z. +z runs along the can's LONG AXIS, so this "
-                                "reads ~1 g sitting upright. Reads ~0.92 on the current unit"),
-    "gx":    ("deg/s",  "%.2f", "MPU6050 gyro X, +/-500 deg/s range"),
-    "gy":    ("deg/s",  "%.2f", "MPU6050 gyro Y"),
-    "gz":    ("deg/s",  "%.2f", "MPU6050 gyro Z"),
-    "lat":   ("deg",    "%.5f", "GPS latitude, ~1.1 m resolution. 0.00000 means NO FIX - it is "
-                                "a sentinel, not a position in the Gulf of Guinea"),
-    "lng":   ("deg",    "%.5f", "GPS longitude. Same sentinel"),
-    "spd":   ("km/h",   "%.1f", "GPS ground speed. 0.0 when there is no fix"),
-    "sat":   ("count",  "%d",   "satellites tracked. A PROXY for accuracy - hdop is the "
-                                "measurement. 4 is the minimum for a 3D fix"),
-    "chute": ("count",  "%d",   "0 = armed, N = eject commands received. This means COMMANDED, "
-                                "never deployed: nothing on board can sense the canopy"),
-    "ul":    ("count",  "%lu",  "GEN3.1. Total uplink commands received, pings + ejects. "
-                                "Non-zero is proof the two-way link has worked at least once"),
-    "hdop":  ("-",      "%.1f", "GEN3.1. Horizontal dilution of precision, LOWER IS BETTER. "
-                                "0.0 means NOT REPORTED - it is never a perfect fix"),
-    "fixq":  ("-",      "%d",   "GEN3.1. The receiver's own verdict: -1 not reported, "
-                                "0 invalid, 1 GPS fix, 2 DGPS fix"),
-    "rssi":  ("dBm",    "%.1f", "Measured by the GROUND STATION as the packet arrived, and "
-                                "appended AFTER the checksum - so it is not covered by the CRC "
-                                "and is absent from anything read off the vehicle's SD card"),
-    "snr":   ("dB",     "%.1f", "Ground station signal-to-noise. Same caveats as rssi"),
+#: Single source of truth for that sidecar. `test_field_doc_covers_every_field` fails if
+#: a field reaches the wire without an entry, which is what stops the contract drifting
+#: away from the parser the way documentation usually does.
+#:
+#: FORMAT FACTS ONLY. `note` explains something about the *encoding or semantics* that a
+#: reader cannot infer from the number — not the state of any particular airframe. Sensor
+#: faults live in the devlog, where they can be corrected; a sidecar is written once and
+#: never revisited, so anything transient in here rots.
+#:
+#: `sentinel` marks a value that means "no data" rather than a measurement.
+FIELD_DOC: dict[str, dict] = {
+    "seq": dict(unit=None, fmt="%lu", desc="packet counter since vehicle boot",
+                note="restarts at 1 on reboot; differencing across a restart is meaningless"),
+    "ms": dict(unit="ms", fmt="%lu", desc="vehicle uptime at the moment of sampling",
+               note="the clock to derive rates from; arrival time carries link jitter"),
+    "temp": dict(unit="degC", fmt="%.2f", desc="BME280 air temperature"),
+    "hum": dict(unit="%RH", fmt="%.1f", desc="BME280 relative humidity"),
+    "pres": dict(unit="hPa", fmt="%.2f", desc="BME280 barometric pressure"),
+    "alt": dict(unit="m", fmt="%.1f", desc="altitude relative to boot, from pressure",
+                note="NOT above sea level; zeroed at startup, so negatives are normal"),
+    "ax": dict(unit="g", fmt="%.3f", desc="accelerometer X"),
+    "ay": dict(unit="g", fmt="%.3f", desc="accelerometer Y"),
+    "az": dict(unit="g", fmt="%.3f", desc="accelerometer Z",
+               note="+z runs along the can's long axis, so this reads ~1 g upright"),
+    "gx": dict(unit="deg/s", fmt="%.2f", desc="gyroscope X"),
+    "gy": dict(unit="deg/s", fmt="%.2f", desc="gyroscope Y"),
+    "gz": dict(unit="deg/s", fmt="%.2f", desc="gyroscope Z"),
+    "lat": dict(unit="deg", fmt="%.5f", desc="GPS latitude, ~1.1 m resolution",
+                sentinel=(0.0, "no fix")),
+    "lng": dict(unit="deg", fmt="%.5f", desc="GPS longitude",
+                sentinel=(0.0, "no fix")),
+    "spd": dict(unit="km/h", fmt="%.1f", desc="GPS ground speed",
+                sentinel=(0.0, "no fix, or genuinely stationary")),
+    "sat": dict(unit="count", fmt="%d", desc="satellites tracked",
+                note="a proxy for accuracy; hdop is the measurement"),
+    "chute": dict(unit="count", fmt="%d", desc="eject commands received",
+                  note="0 armed, N commanded. Never confirms deployment - no canopy sensor exists"),
+    "ul": dict(unit="count", fmt="%lu", desc="uplink commands received, pings plus ejects",
+               note="non-zero proves the two-way link has worked at least once"),
+    "hdop": dict(unit=None, fmt="%.1f", desc="horizontal dilution of precision, lower is better",
+                 sentinel=(0.0, "not reported by the receiver")),
+    "fixq": dict(unit=None, fmt="%d", desc="receiver fix verdict: 0 invalid, 1 GPS, 2 DGPS",
+                 sentinel=(-1, "not reported by the receiver")),
+    "rssi": dict(unit="dBm", fmt="%.1f", desc="signal strength measured by the ground station",
+                 note="appended after the checksum; absent when read from the vehicle SD card"),
+    "snr": dict(unit="dB", fmt="%.1f", desc="signal-to-noise measured by the ground station",
+                note="appended after the checksum; absent when read from the vehicle SD card"),
 }
 
 #: Fields that are conceptually integers. Everything else is a float.
