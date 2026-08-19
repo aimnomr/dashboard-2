@@ -42,3 +42,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 037 · Uplink confirmation is display-only, and the OLED is dead
 - 2026-08-19 · 038 · Pose model rendered on its side
 - 2026-08-19 · 039 · EJECT reaches the ground station but never the vehicle
+- 2026-08-19 · 040 · The flight unit's command path is not the fault
