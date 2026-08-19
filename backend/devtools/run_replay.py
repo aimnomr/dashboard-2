@@ -1,15 +1,22 @@
 """Replay entry point — CAPTURED TELEMETRY, NOT A LIVE LINK.
 
-    python -m devtools.run_replay FLIGHT21.CSV
-    python -m devtools.run_replay FLIGHT21.CSV --speed 20
-    python -m devtools.run_replay logs/raw/FLIGHT22.CSV --loop
+    python -m devtools.run_replay 20260820-015822-serial.log        # a session log
+    python -m devtools.run_replay 20260820-015822-serial.log --speed 20
+    python -m devtools.run_replay FLIGHT21.CSV                      # a vehicle SD card
+    python -m devtools.run_replay FLIGHT21.CSV --loop
 
-Runs the real pipeline (raw log -> parser -> WebSocket) against a captured SD log
-instead of the serial port. The data is real; the *liveness* is not, which is why this
-sits in devtools alongside the mock and is unreachable from `python -m dashboard`.
+Runs the real pipeline (raw log -> parser -> WebSocket) against a capture instead of the
+serial port. The data is real; the *liveness* is not, which is why this sits in devtools
+alongside the mock and is unreachable from `python -m dashboard`.
 
-A bare filename is looked up in logs/raw/ and then backend/tests/fixtures/, so the two
-committed captures can be replayed by name from anywhere.
+**Any line-oriented capture works — there is no extension filter anywhere in this path.**
+A `.log` written by a live session replays exactly like a `.CSV` pulled off the vehicle's
+SD card: the parser classifies each line on its own merits, so a session log's `[GCS]`
+status lines and a mixture of packet generations all come through. The examples led with
+.CSV for a while and left the impression this was SD-only; it never was.
+
+A bare filename is looked up in logs/raw/ and then backend/tests/fixtures/, so a session
+log or a committed capture can be replayed by name from anywhere.
 """
 
 from __future__ import annotations
