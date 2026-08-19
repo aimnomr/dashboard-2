@@ -57,23 +57,44 @@ All nine are in scope for the first version.
 |---|---|---|
 | Link health | `rssi`, `snr`, arrival time | See the hard constraint below |
 | Altitude | `alt` | Primary chart. Current value large, plus max reached |
-| Chute state | `chute` | ARMED / DEPLOYED, high prominence |
+| Chute state | `chute` | ARMED / COMMANDED ×N / UNKNOWN, high prominence. **Never "DEPLOYED"** (rule S8) — *decided, not yet implemented: `lib/link.ts` still renders "Deployed"* |
 | EJECT control | uplink | Armed state required — see below |
 | Ground track | `lat`, `lng` | Plain XY trace, launch point marked, scale bar. No basemap (`ISS-11`) |
 | GPS readout | `lat`, `lng`, `sat` | Numeric; satellite count doubles as a fix-quality indicator |
-| Attitude | `ax…gz` | 2D artificial horizon plus gyro rates. Distinguishes tumble from stable descent |
+| Attitude | `ax…gz` | 2D artificial horizon, gyro rates, and integrated yaw. Distinguishes tumble from stable descent |
 | Speed | `spd` | Descent rate sanity check |
 | Environment | `temp`, `hum`, `pres` | Secondary. `pres` cross-checks `alt` |
 | Raw feed | raw lines | Scrolling last N lines, malformed ones marked. Unglamorous, invaluable in the field |
 
-### Hard constraint: link health cannot show packet loss
+### Link health: loss is computable on GEN3, and only on GEN3
 
-There is no packet counter (`ISS-08`). The panel may show **time since last packet**, **RSSI**
-and **SNR** — and nothing else. It must not display a loss percentage, a gap count, or a
-"packets missed" figure, because those cannot be computed from this data and a fabricated one
-would be acted on.
+**Amended 2026-08-19 — `ISS-08` is resolved.** The original constraint below was written when
+no generation carried a packet counter. GEN3 carries `seq`, so the constraint no longer
+holds for it.
 
-A stale link must be **loud**. A dashboard that silently stops updating looks identical to a calm
+What replaces it is narrower, not looser:
+
+- **GEN3** — a real loss figure is permitted, computed **in the backend** from `seq`, by
+  `linkstats.py`. Not in the browser: a late-joining client would compute a different
+  number from the same flight, and restarts and duplicates each need handling that a
+  subtraction in a panel gets wrong. See `dashboard-gen3-plan.md`, rules S1–S5.
+- **GEN1 / GEN2** — the original constraint stands unchanged. No counter exists, so the
+  panel reads **"loss: unavailable"**. It must not read 0%, which would be a fabricated
+  measurement rather than a missing one.
+- **Until `linkstats.py` exists**, no loss figure is shown for any generation. Showing
+  nothing is correct; showing a figure derived from `rx_index` is the exact failure the
+  original rule was written to prevent, and it is still forbidden.
+
+The superseded rule, kept because the reasoning is still the reasoning:
+
+> There is no packet counter (`ISS-08`). The panel may show **time since last packet**,
+> **RSSI** and **SNR** — and nothing else. It must not display a loss percentage, a gap
+> count, or a "packets missed" figure, because those cannot be computed from this data and
+> a fabricated one would be acted on.
+
+Two things are unchanged by GEN3. **Staleness stays on the PC clock** — the vehicle clock
+cannot measure silence, because a dropped packet brings no timestamp with it. And a stale
+link must be **loud**: a dashboard that silently stops updating looks identical to a calm
 one, and that is the most dangerous failure mode on the screen.
 
 ### Attitude is a 2D horizon, drawn on canvas
@@ -92,6 +113,27 @@ Note also that the accelerometer gives **two degrees of freedom, not three** —
 tilt but cannot determine rotation about the gravity vector, and there is no
 magnetometer, so there is no heading reference on this vehicle at all.
 
+#### The third axis: relative yaw, added 2026-08-19
+
+**The paragraph above is still exactly true, and is the reason this is not a heading.**
+Nothing measures which way the vehicle is pointing. What changed is that `gz` can now be
+*integrated*, because GEN3 carries `vehicle_ms` (`ISS-08`, resolved).
+
+What that yields, and what it does not:
+
+| | |
+|---|---|
+| Reference | The orientation at boot. **Not north** — no magnetometer exists |
+| Error | Grows without bound. No absolute reference means nothing corrects gyro bias |
+| Resolution | 1 Hz. Rotation past 180 °/s is beyond Nyquist and flagged unresolvable |
+
+So it is displayed as **`Yaw ~`**, with elapsed integration time beside it, and it is
+discarded outright when the vehicle reboots — the origin it was measured from is gone.
+Integration is against the vehicle clock and never arrival time: arrival jitter integrates
+into heading error indistinguishable from real rotation.
+
+Pitch and roll are measured. Yaw is estimated. The panel must not let those look alike.
+
 #### A 3D pose was tried and reverted
 
 Built with Three.js on 2026-08-18 and reverted the same day as not feasible — see devlog
@@ -105,6 +147,11 @@ never measured in the first place.
 
 If it is revisited, the unmeasured-rotation problem is the thing to solve first, not the
 rendering.
+
+**Status of that condition (2026-08-19): partially met, and not enough.** The third axis is
+no longer entirely unmeasured — but a drifting, boot-relative estimate is a weak foundation
+for a pose you would look at to decide something. The revert stands. Devlog 030 added yaw
+as a *number*, deliberately not as a rendered orientation.
 
 ### EJECT is not a display control
 

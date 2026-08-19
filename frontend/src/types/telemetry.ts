@@ -57,8 +57,29 @@ export interface FrameMessage {
    * something was lost, so no loss figure may be derived from it.
    */
   rx_index: number
-  /** Arrival time at the PC, not sampling time. There is no onboard clock. */
+  /**
+   * Arrival time at the PC. Use for staleness and link health only — the vehicle clock
+   * cannot measure silence, because a dropped packet brings no timestamp with it.
+   */
   pc_time: string
+  /**
+   * The vehicle's own packet counter. GEN3 only; null for GEN1/GEN2 (ISS-08).
+   *
+   * Do NOT subtract two of these to get packet loss. Baselines, vehicle restarts,
+   * duplicates and the rolling window all have to be handled together, and that belongs
+   * to the backend (step 2 of the GEN3 plan) so every client sees the same figure
+   * regardless of when it connected.
+   */
+  seq: number | null
+  /**
+   * Vehicle uptime in ms, at the moment of sampling. GEN3 only; null otherwise.
+   *
+   * This is the clock everything derived from the data belongs on — descent rate,
+   * integrated yaw, the chart x-axis — because it carries no link or scheduling jitter.
+   */
+  vehicle_ms: number | null
+  /** GEN3 only. Null means the generation carries no checksum, NOT that one passed. */
+  crc_ok: boolean | null
   raw: string
   ok: boolean
   frame: TelemetryFrame | null
@@ -98,9 +119,13 @@ export type ServerMessage =
 /** A frame plus the moment it landed, for charting. */
 export interface FrameRecord {
   rxIndex: number
-  /** Milliseconds since the first frame of this session. */
+  /** Milliseconds since the first frame of this session, by PC arrival time. */
   t: number
   receivedAt: number
+  /** Vehicle uptime in ms at sampling. Null for GEN1/GEN2, which have no clock. */
+  vehicleMs: number | null
+  /** Vehicle packet counter. Null for GEN1/GEN2. Never a loss metric. */
+  seq: number | null
   frame: TelemetryFrame
 }
 
@@ -114,6 +139,15 @@ export interface RawRecord {
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'closed'
+
+/**
+ * Which screen is showing.
+ *
+ * `flight` is the tuned single-screen grid used while something is in the air.
+ * `channels` charts every numeric field, for reading a flight afterwards or checking a
+ * replay parsed correctly.
+ */
+export type View = 'flight' | 'channels'
 
 /**
  * Freshness of the downlink, derived only from arrival time. At 1 Hz, three seconds

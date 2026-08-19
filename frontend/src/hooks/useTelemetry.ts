@@ -124,6 +124,10 @@ export function useTelemetry(url = wsUrl()): TelemetryState {
         rxIndex: message.rx_index,
         t: now - originRef.current,
         receivedAt: now,
+        // Carried through unchanged, including the nulls. GEN1 and GEN2 have no clock
+        // and no counter, and substituting 0 would make a missing fact look measured.
+        vehicleMs: message.vehicle_ms,
+        seq: message.seq,
         frame: message.frame,
       }
 

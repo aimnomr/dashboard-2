@@ -1,4 +1,5 @@
 import type { TelemetryState } from '../hooks/useTelemetry'
+import type { View } from '../types/telemetry'
 import {
   chutePresentation,
   formatAge,
@@ -10,9 +11,11 @@ import {
 interface StatusBarProps {
   telemetry: TelemetryState
   now: number
+  view: View
+  onViewChange: (view: View) => void
 }
 
-export function StatusBar({ telemetry, now }: StatusBarProps) {
+export function StatusBar({ telemetry, now, view, onViewChange }: StatusBarProps) {
   const { session, latest, lastMessageAt, counts, connection } = telemetry
   const state = linkState(lastMessageAt, now)
   const link = LINK_PRESENTATION[state]
@@ -81,6 +84,22 @@ export function StatusBar({ telemetry, now }: StatusBarProps) {
       </div>
 
       <div className="statusbar__spacer" />
+
+      {/* Flight stays first and stays the default. Switching views is a deliberate act
+          during analysis, never something to discover mid-descent. */}
+      <div className="viewswitch" role="group" aria-label="View">
+        {(['flight', 'channels'] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={`viewswitch__button ${view === option ? 'is-active' : ''}`}
+            aria-pressed={view === option}
+            onClick={() => onViewChange(option)}
+          >
+            {option === 'flight' ? 'Flight' : 'Channels'}
+          </button>
+        ))}
+      </div>
 
       <div className="statusbar__item">
         <span className="label">Backend</span>

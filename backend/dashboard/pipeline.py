@@ -29,10 +29,16 @@ class Pipeline:
     def rx_index(self) -> int:
         """Lines that arrived and looked like telemetry.
 
-        Emphatically NOT a packet counter. The vehicle does not send one (ISS-08), so
-        this cannot detect loss: a gap between two consecutive values means nothing was
-        received, not that nothing was sent. Named `rx_index` rather than `seq` so
-        nobody downstream is tempted to compute a loss figure from it.
+        Emphatically NOT a packet counter. This cannot detect loss: a gap between two
+        consecutive values means nothing was received, not that nothing was sent. Named
+        `rx_index` rather than `seq` so nobody downstream is tempted to compute a loss
+        figure from it.
+
+        GEN3 does carry a real counter, and it is forwarded as `seq` in the envelope —
+        but loss arithmetic is deliberately not done here. It belongs in `linkstats.py`
+        (step 2 of wiki/decisions/dashboard-gen3-plan.md), which owns baselines, restart
+        detection and the rolling window. Subtracting two `seq` values in a UI would get
+        every one of those cases wrong.
         """
         return self._rx_index
 
@@ -72,9 +78,19 @@ class Pipeline:
         envelope = {
             "type": "frame",
             "rx_index": self._rx_index,
-            # Arrival time at the PC, not sampling time. There is no onboard clock
-            # (ISS-08), so anything time-derived inherits this error.
+            # Arrival time at the PC, NOT sampling time. Use this for staleness and
+            # link health only: the vehicle clock cannot measure silence, because a
+            # dropped packet carries no timestamp with it.
             "pc_time": now,
+            # The vehicle's own clock and packet counter. GEN3 only — None for GEN1 and
+            # GEN2, which carry neither (ISS-08), and the UI must fall back rather than
+            # substitute a zero. Anything derived FROM the data belongs on this clock:
+            # it is the moment of sampling, free of link and scheduling jitter.
+            "seq": result.seq,
+            "vehicle_ms": result.vehicle_ms,
+            # True/False for GEN3, None where the generation carries no checksum at all.
+            # None is not "passed" — it means the question could not be asked.
+            "crc_ok": result.crc_ok,
             "raw": result.raw,
             "ok": result.ok,
             "frame": result.frame,

@@ -21,7 +21,7 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-05](#iss-05) | COM port assignments contradict | 🟡 Deferred | — | Ingest config |
 | [ISS-06](#iss-06) | Competition requirements unknown | 🔴 Open | Aiman | Scope, mandatory displays |
 | [ISS-07](#iss-07) | `CHUTE:` field is not numeric | 🟡 Deferred | Firmware member | — (worked around) |
-| [ISS-08](#iss-08) | No packet counter, timestamp, or checksum | 🟡 Deferred | Firmware member | Loss detection, true time axis |
+| [ISS-08](#iss-08) | No packet counter, timestamp, or checksum | 🟢 Resolved | — | — |
 | [ISS-09](#iss-09) | Raw source files no longer present | 🔴 Open | Aiman | Test data availability |
 | [ISS-10](#iss-10) | Ground unit output buffer smaller than payload | 🟢 Resolved | — | — |
 | [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
@@ -29,7 +29,7 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-13](#iss-13) | Frequency coordination with other teams | 🔴 Open | Aiman | Launch day, link viability |
 | [ISS-14](#iss-14) | GPS delivers zero bytes — module appears unpowered | 🔴 Open | Aiman | All GPS telemetry |
 | [ISS-15](#iss-15) | SQLite store not built | 🟡 Deferred | — | Post-flight analysis |
-| [ISS-16](#iss-16) | Replay not built | 🟡 Deferred | — | Reviewing past flights |
+| [ISS-16](#iss-16) | Replay not built | 🟢 Resolved | — | — |
 
 ---
 
@@ -155,7 +155,35 @@ whenever `ISS-08` is discussed, since both are packet-contract changes.
 <a id="iss-08"></a>
 ## ISS-08 — No packet counter, timestamp, or checksum
 
-**Status** 🟡 Deferred · **Raised** 2026-08-18 · **Deferred** 2026-08-18 · **Owner** Firmware member
+**Status** 🟢 Resolved · **Raised** 2026-08-18 · **Deferred** 2026-08-18 · **Resolved** 2026-08-19
+
+**Resolution (2026-08-19).** **GEN3 adds all three**, and they are carried end to end.
+
+| Missing | GEN3 | Verified by |
+|---|---|---|
+| Packet counter | `seq` | 1013 contiguous packets across two SD captures |
+| Timestamp | `ms`, vehicle uptime at sampling | 1000 ms cadence, exact, min = max |
+| Checksum | CRC16/CCITT-FALSE | 5/5 over the air, 1013/1013 from SD |
+
+The firmware landed in devlog 019–022; the parser in 027; the regression suite in 028; and
+`pipeline.py` now forwards `seq`, `vehicle_ms` and `crc_ok` in every frame envelope (030).
+
+Each accepted consequence below is now **retired**:
+
+- Packet loss **is** computable. It is deliberately not computed yet — that is
+  `linkstats.py`, step 2 of `decisions/dashboard-gen3-plan.md`, which owns baselines,
+  restart detection and the rolling window. Until it exists the UI shows no loss figure
+  at all, which is the correct behaviour, not a leftover of this issue.
+- The time axis is **vehicle `ms`** for GEN3 (rule S7). Arrival time is retained for
+  staleness only, because the vehicle clock cannot measure silence.
+- A corrupted line is now **distinguishable**: a failed checksum rejects the frame.
+
+**One consequence survives, and is not a defect.** GEN1 and GEN2 hardware still exists on
+the bench and still carries none of this, so every one of these fields is nullable all the
+way to the browser. Null means *absent*, never zero and never "passed".
+
+This issue resolved itself by the route it predicted — a monotonic counter was indeed the
+single highest-value addition, and adopting it was additive rather than a rewrite.
 
 **Deferred (2026-08-18).** Development proceeds against the GEN2 packet **exactly as it is
 emitted today** — no additions requested — so that the dashboard is not blocked on a firmware
@@ -467,9 +495,26 @@ children, which one flat insert makes structurally impossible.
 <a id="iss-16"></a>
 ## ISS-16 — Replay not built
 
-**Status** 🟡 Deferred · **Raised** 2026-08-19
+**Status** 🟢 Resolved · **Raised** 2026-08-19 · **Resolved** 2026-08-19
 
-**Problem.** Live view only. There is no way to re-open a past flight.
+**Resolution (2026-08-19).** Built as `backend/dashboard/sources/file_source.py`, with
+`devtools/run_replay.py` as the entry point — in devtools, so the launch entry point still
+has no route to non-live data. Devlog 029.
+
+It came out cheaper than predicted. Pacing is taken from the capture's own `ms` field
+rather than a chosen interval, so a replay reproduces the cadence the vehicle actually ran
+at; measured **0.511 s mean inter-frame gap at `--speed 2`** against a true 1.000 s
+cadence. `--speed`, `--loop`, `--hold` and `--interval` cover the rest.
+
+**Replay adds no RSSI or SNR.** Those are measured by the ground station's radio as a
+packet arrives, and a packet read from a file crossed no radio. They stay null and render
+as `—`. That choice is the reason the frontend now tolerates an absent measurement at all
+— before it, `StatusBar` called `.toFixed()` on one and a replay crashed the render.
+
+**One consequence worth recording.** `--loop` restarts the vehicle clock and `seq` on every
+pass, which is the same shape as a reboot. That makes replay the only source today that
+can exercise the restart path, and it is what the chart-break handling in devlog 030 was
+verified against.
 
 **Deferred 2026-08-19**, consistent with taking features independently.
 

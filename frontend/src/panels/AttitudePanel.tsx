@@ -1,15 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Panel } from '../components/Panel'
-import { computeAttitude } from '../lib/attitude'
+import { computeAttitude, integrateYaw } from '../lib/attitude'
 import type { FrameRecord } from '../types/telemetry'
 
 interface AttitudePanelProps {
   latest: FrameRecord | null
+  history: FrameRecord[]
 }
 
-export function AttitudePanel({ latest }: AttitudePanelProps) {
+export function AttitudePanel({ latest, history }: AttitudePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const attitude = latest ? computeAttitude(latest.frame) : null
+  const yaw = useMemo(() => integrateYaw(history), [history])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -123,6 +125,18 @@ export function AttitudePanel({ latest }: AttitudePanelProps) {
             </div>
           </div>
           <div>
+            {/* Marked with ~ because it is integrated, not measured. Pitch and roll have
+                gravity as an absolute reference; nothing on a 6-axis IMU references
+                yaw, so this is relative to boot and drifts for as long as it runs. */}
+            <span className="label">Yaw ~</span>
+            <div
+              className="value numeric"
+              style={{ color: yaw.degraded ? 'var(--warn)' : undefined }}
+            >
+              {yaw.yaw !== null ? `${yaw.yaw.toFixed(0)}°` : '—'}
+            </div>
+          </div>
+          <div>
             <span className="label">Spin</span>
             <div className="value numeric">
               {attitude ? `${attitude.spinRate.toFixed(0)}` : '—'}
@@ -131,6 +145,20 @@ export function AttitudePanel({ latest }: AttitudePanelProps) {
           </div>
         </div>
       </div>
+
+      {yaw.yaw !== null && (
+        <div className="panel__footnote">
+          yaw relative to boot · drifting · {yaw.integrated.toFixed(0)} s integrated
+          {yaw.degraded && ` · ${yaw.reason}`}
+        </div>
+      )}
+      {yaw.yaw === null && attitude && (
+        <div className="panel__footnote">
+          {/* GEN1/GEN2 carry no clock, so there is nothing to integrate against. Saying
+              so beats an empty field the operator has to guess about. */}
+          no yaw — this generation carries no vehicle clock
+        </div>
+      )}
 
       {/* An accelerometer measures gravity plus vehicle acceleration. Under boost or in
           freefall the horizon is measuring thrust or nothing, so say so rather than

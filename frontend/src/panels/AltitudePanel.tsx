@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Panel } from '../components/Panel'
 import { TimeSeriesChart } from '../components/TimeSeriesChart'
+import { applyBreaks, timebase } from '../lib/timebase'
 import type { FrameRecord } from '../types/telemetry'
 
 interface AltitudePanelProps {
@@ -9,17 +10,21 @@ interface AltitudePanelProps {
 }
 
 export function AltitudePanel({ history, latest }: AltitudePanelProps) {
-  const { x, y, peak } = useMemo(() => {
-    const xs = new Array<number>(history.length)
-    const ys = new Array<number>(history.length)
+  const { x, y, peak, clock } = useMemo(() => {
+    const base = timebase(history)
+    const ys = new Array<number | null>(history.length)
     let max = Number.NEGATIVE_INFINITY
     for (let i = 0; i < history.length; i++) {
-      xs[i] = history[i].t / 1000
       const alt = history[i].frame.alt
       ys[i] = alt
       if (alt > max) max = alt
     }
-    return { x: xs, y: ys, peak: Number.isFinite(max) ? max : null }
+    return {
+      x: base.seconds,
+      y: applyBreaks(ys, base.restarts),
+      peak: Number.isFinite(max) ? max : null,
+      clock: base.label,
+    }
   }, [history])
 
   return (
@@ -41,9 +46,13 @@ export function AltitudePanel({ history, latest }: AltitudePanelProps) {
           marginBottom: '0.375rem',
         }}
       >
-        relative to launch
+        relative to launch · x: {clock}
       </div>
-      <TimeSeriesChart x={x} y={y} yLabel="alt" stroke="var(--trace)" minSpan={20} />
+      <TimeSeriesChart
+        x={x}
+        series={[{ label: 'alt', values: y, stroke: 'var(--trace)' }]}
+        minSpan={20}
+      />
     </Panel>
   )
 }

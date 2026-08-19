@@ -1,16 +1,25 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
+
+export interface ChartSeries {
+  label: string
+  /** Null renders as a break in the line, never as zero. */
+  values: (number | null)[]
+  stroke: string
+  fill?: string
+}
 
 export interface TimeSeriesChartProps {
   /** Seconds since the first frame. */
   x: number[]
-  y: (number | null)[]
-  stroke?: string
-  fill?: string
-  yLabel?: string
+  series: ChartSeries[]
   /** Keeps the axis from collapsing to nothing while the vehicle sits on the pad. */
   minSpan?: number
+  /** Shown when more than one series would otherwise be unidentifiable. */
+  legend?: boolean
+  /** Unit shown beside the legend, e.g. "g" or "deg/s". */
+  unit?: string
 }
 
 /**
@@ -19,20 +28,30 @@ export interface TimeSeriesChartProps {
  * Canvas rather than SVG: a 30-minute flight at 1 Hz is ~1800 points per series, and
  * several of these run at once. SVG libraries bog down at that scale, which is the one
  * moment the dashboard must not stutter.
+ *
+ * The legend is drawn here rather than by uPlot so it can use the project's own colour
+ * tokens and stay legible at the small sizes the channels view uses.
  */
 export function TimeSeriesChart({
   x,
-  y,
-  stroke = 'var(--trace)',
-  fill,
-  yLabel,
+  series,
   minSpan = 10,
+  legend = false,
+  unit,
 }: TimeSeriesChartProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const plotRef = useRef<uPlot | null>(null)
-  const dataRef = useRef<uPlot.AlignedData>([x, y] as uPlot.AlignedData)
 
-  dataRef.current = [x, y] as uPlot.AlignedData
+  const data = useMemo(
+    () => [x, ...series.map((s) => s.values)] as uPlot.AlignedData,
+    [x, series],
+  )
+  const dataRef = useRef<uPlot.AlignedData>(data)
+  dataRef.current = data
+
+  // Rebuilding the plot on every render would throw away uPlot's canvas each second.
+  // Only a change in the SHAPE of the chart justifies it; data flows through setData.
+  const shape = series.map((s) => `${s.label}:${s.stroke}:${s.fill ?? ''}`).join('|')
 
   useEffect(() => {
     const host = hostRef.current
@@ -63,14 +82,16 @@ export function TimeSeriesChart({
       },
       series: [
         {},
-        {
-          label: yLabel ?? 'value',
-          stroke: resolve(stroke),
+        ...series.map((s) => ({
+          label: s.label,
+          stroke: resolve(s.stroke),
           width: 2.5,
-          fill: fill ? resolve(fill) : undefined,
+          fill: s.fill ? resolve(s.fill) : undefined,
           points: { show: false },
+          // False, so a dropped packet leaves a visible break. Joining across it would
+          // draw a straight line through time the vehicle was not observed.
           spanGaps: false,
-        },
+        })),
       ],
       axes: [
         {
@@ -103,12 +124,31 @@ export function TimeSeriesChart({
       plot.destroy()
       plotRef.current = null
     }
-    // Options are built once; data flows through setData below.
-  }, [stroke, fill, yLabel, minSpan])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape, minSpan])
 
   useEffect(() => {
     plotRef.current?.setData(dataRef.current)
-  }, [x, y])
+  }, [data])
 
-  return <div className="chart" ref={hostRef} />
+  return (
+    <div className="chart-block">
+      {legend && (
+        <div className="chart-legend">
+          {series.map((s) => (
+            <span className="chart-legend__item" key={s.label}>
+              <span
+                className="chart-legend__swatch"
+                style={{ background: s.stroke }}
+                aria-hidden="true"
+              />
+              {s.label}
+            </span>
+          ))}
+          {unit && <span className="chart-legend__unit">{unit}</span>}
+        </div>
+      )}
+      <div className="chart" ref={hostRef} />
+    </div>
+  )
 }
