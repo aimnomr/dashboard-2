@@ -30,3 +30,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 025 · GPS delivers zero bytes — root cause narrowed
 - 2026-08-19 · 026 · GPS fault is power, not pins
 - 2026-08-19 · 027 · GEN3 parser
+- 2026-08-19 · 028 · GEN3 parser regression suite

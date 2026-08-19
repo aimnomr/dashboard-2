@@ -119,7 +119,10 @@ def crc16_ccitt(data: bytes) -> int:
 
     Must agree byte for byte with the flight unit's `crc16Ccitt()` in Packet.ino and
     with firmware/tests/verify_gen3.py, which is the reference. Verified against real
-    hardware output: 5/5 over the air and 85/85 from the SD card.
+    hardware output: 5/5 over the air, and 1013/1013 across the two SD captures in
+    tests/fixtures/ — checksums the firmware computed, not ones generated here.
+
+    Pinned by tests/test_parser_gen3.py, which will fail the moment this stops agreeing.
     """
     crc = 0xFFFF
     for byte in data:
