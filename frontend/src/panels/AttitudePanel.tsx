@@ -1,20 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Panel } from '../components/Panel'
 import { PoseView } from '../components/PoseView'
-import { computeAttitude, integrateYaw } from '../lib/attitude'
+import { computeAttitude } from '../lib/attitude'
 import type { FrameRecord } from '../types/telemetry'
 
 type Mode = 'model' | 'horizon'
 
 interface AttitudePanelProps {
   latest: FrameRecord | null
-  history: FrameRecord[]
 }
 
-export function AttitudePanel({ latest, history }: AttitudePanelProps) {
+export function AttitudePanel({ latest }: AttitudePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const attitude = latest ? computeAttitude(latest.frame) : null
-  const yaw = useMemo(() => integrateYaw(history), [history])
   // The model reads better for a body that can be at any orientation; the horizon is
   // the familiar instrument. Both are the same numbers, so this is a preference and
   // deliberately not persisted.
@@ -133,7 +131,6 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
           <PoseView
             pitch={attitude?.pitch ?? null}
             roll={attitude?.roll ?? null}
-            yaw={yaw.yaw}
             reliable={attitude?.reliable ?? true}
           />
         ) : (
@@ -155,18 +152,6 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
             </div>
           </div>
           <div>
-            {/* Marked with ~ because it is integrated, not measured. Pitch and roll have
-                gravity as an absolute reference; nothing on a 6-axis IMU references
-                yaw, so this is relative to boot and drifts for as long as it runs. */}
-            <span className="label">Yaw ~</span>
-            <div
-              className="value numeric"
-              style={{ color: yaw.degraded ? 'var(--warn)' : undefined }}
-            >
-              {yaw.yaw !== null ? `${yaw.yaw.toFixed(0)}°` : '—'}
-            </div>
-          </div>
-          <div>
             <span className="label">Spin</span>
             <div className="value numeric">
               {attitude ? `${attitude.spinRate.toFixed(0)}` : '—'}
@@ -175,20 +160,6 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
           </div>
         </div>
       </div>
-
-      {yaw.yaw !== null && (
-        <div className="panel__footnote">
-          yaw relative to boot · drifting · {yaw.integrated.toFixed(0)} s integrated
-          {yaw.degraded && ` · ${yaw.reason}`}
-        </div>
-      )}
-      {yaw.yaw === null && attitude && (
-        <div className="panel__footnote">
-          {/* GEN1/GEN2 carry no clock, so there is nothing to integrate against. Saying
-              so beats an empty field the operator has to guess about. */}
-          no yaw — {yaw.reason}
-        </div>
-      )}
 
       {/* An accelerometer measures gravity plus vehicle acceleration. Under boost or in
           freefall the horizon is measuring thrust or nothing, so say so rather than

@@ -5,8 +5,6 @@ interface PoseViewProps {
   /** Degrees, from the accelerometer. Null when no frame has arrived. */
   pitch: number | null
   roll: number | null
-  /** Degrees, integrated from the gyro. Null when not derivable. */
-  yaw: number | null
   /** False when the accelerometer is not a usable attitude reference right now. */
   reliable: boolean
 }
@@ -22,26 +20,25 @@ const MESH = cylinderMesh()
  * Two rules this component is built around.
  *
  * **The model shows only what is measured.** Pitch and roll come from gravity, so they are
- * absolute. Yaw is integrated from the gyro and drifts without bound, so the body is NOT
- * rotated by it — a model quietly spinning on a bench would be the single most misleading
- * thing on the screen. Yaw appears as a tick on the ring outside the model, visibly
- * separate from the shape, so an estimate can never be mistaken for a measurement.
+ * absolute, and they are the only two angles this draws. Yaw was integrated from the gyro
+ * and shown as a tick on the outer ring until 2026-08-19; hardware testing retired it, and
+ * `lib/attitude.ts` records why it is not coming back. The ring remains as a bezel, with
+ * nothing on it.
  *
  * **Easing is presentation, not data.** At 1 Hz a model that snapped to each sample would
  * jump once a second. Between samples this is showing an interpolation, and it lags the
  * telemetry by about `SMOOTHING_TAU`. That is fine for a shape read at a glance and wrong
  * for a number, which is why the readouts beside it stay raw.
  */
-export function PoseView({ pitch, roll, yaw, reliable }: PoseViewProps) {
+export function PoseView({ pitch, roll, reliable }: PoseViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Targets live in a ref so the animation loop reads the latest values without being
   // torn down and restarted on every frame that arrives.
-  const target = useRef({ pitch: 0, roll: 0, yaw: 0, reliable: true, has: false })
+  const target = useRef({ pitch: 0, roll: 0, reliable: true, has: false })
   target.current = {
     pitch: pitch ?? 0,
     roll: roll ?? 0,
-    yaw: yaw ?? 0,
     reliable,
     has: pitch !== null && roll !== null,
   }
@@ -51,7 +48,7 @@ export function PoseView({ pitch, roll, yaw, reliable }: PoseViewProps) {
     const parent = canvas?.parentElement
     if (!canvas || !parent) return
 
-    const shown = { pitch: 0, roll: 0, yaw: 0 }
+    const shown = { pitch: 0, roll: 0 }
     let raf = 0
     let last = performance.now()
 
@@ -65,7 +62,6 @@ export function PoseView({ pitch, roll, yaw, reliable }: PoseViewProps) {
       const t = target.current
       shown.pitch = smoothAngle(shown.pitch, t.pitch, dt, SMOOTHING_TAU)
       shown.roll = smoothAngle(shown.roll, t.roll, dt, SMOOTHING_TAU)
-      shown.yaw = smoothAngle(shown.yaw, t.yaw, dt, SMOOTHING_TAU)
 
       const dpr = window.devicePixelRatio || 1
       const width = parent.clientWidth
@@ -100,7 +96,7 @@ function render(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  shown: { pitch: number; roll: number; yaw: number },
+  shown: { pitch: number; roll: number },
   hasData: boolean,
   reliable: boolean,
   colour: (name: string) => string,
@@ -115,9 +111,9 @@ function render(
   ctx.save()
   ctx.translate(cx, cy)
 
-  // Yaw ring. Outside the model and drawn dashed, because it carries the estimated axis
-  // and must not read as part of the solid.
-  drawYawRing(ctx, radius, shown.yaw, hasData, colour)
+  // Bezel. Drawn before the early return below, so the no-data state is a framed empty
+  // dial rather than a blank rectangle.
+  drawBezel(ctx, radius, colour)
 
   if (!hasData) {
     ctx.restore()
@@ -196,11 +192,17 @@ function drawHorizon(ctx: CanvasRenderingContext2D, halfWidth: number, colour: (
   ctx.restore()
 }
 
-function drawYawRing(
+/**
+ * The dashed outer ring.
+ *
+ * It carried the yaw tick until 2026-08-19 and now carries nothing. Kept because it is
+ * also the frame for the no-data state, which would otherwise be an empty rectangle —
+ * and because a bezel with nothing on it reads as "no more information here", which is
+ * true.
+ */
+function drawBezel(
   ctx: CanvasRenderingContext2D,
   radius: number,
-  yaw: number,
-  hasYaw: boolean,
   colour: (n: string) => string,
 ) {
   ctx.save()
@@ -211,20 +213,5 @@ function drawYawRing(
   ctx.arc(0, 0, radius, 0, Math.PI * 2)
   ctx.stroke()
   ctx.setLineDash([])
-
-  if (!hasYaw) {
-    ctx.restore()
-    return
-  }
-
-  // Screen angle: 0° at the top, increasing clockwise, matching a compass rose even
-  // though this is not a compass — there is no magnetometer and no north.
-  const a = (yaw - 90) * (Math.PI / 180)
-  ctx.strokeStyle = colour('--text-dim')
-  ctx.lineWidth = 2.5
-  ctx.beginPath()
-  ctx.moveTo(Math.cos(a) * (radius - 6), Math.sin(a) * (radius - 6))
-  ctx.lineTo(Math.cos(a) * radius, Math.sin(a) * radius)
-  ctx.stroke()
   ctx.restore()
 }

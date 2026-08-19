@@ -152,6 +152,45 @@ describe('which way is up', () => {
   })
 })
 
+describe('the camera is a rotation, not a mirror', () => {
+  // The second half of the camera bug, found on hardware the same way as the first: the
+  // model was mirrored, so roll matched reality and pitch was reversed. That pairing is
+  // the signature — mirroring about the screen-x plane leaves the roll axis (normal to
+  // the plane) alone and reverses the pitch axis (lying in it).
+  //
+  // Every test above passes just as happily under a reflection, which is why none of
+  // them caught it. These two do not.
+
+  it('preserves handedness — determinant is +1', () => {
+    // A reflection has determinant -1 and mirrors the whole scene. This is the single
+    // assertion that would have caught the bug at the time it was written.
+    const e = (v: { x: number; y: number; z: number }) => viewTransform(v)
+    const a = e({ x: 1, y: 0, z: 0 })
+    const b = e({ x: 0, y: 1, z: 0 })
+    const c = e({ x: 0, y: 0, z: 1 })
+
+    const det =
+      a.x * (b.y * c.z - b.z * c.y) -
+      a.y * (b.x * c.z - b.z * c.x) +
+      a.z * (b.x * c.y - b.y * c.x)
+
+    expect(det).toBeCloseTo(1, 6)
+  })
+
+  it('leans the can the same way for +pitch as the body frame says it should', () => {
+    // Pins the SIGN of pitch on screen, not just the axis. The body's nose is +z; a
+    // positive pitch rotates it toward +x, and with screen-right at world -x it must
+    // therefore appear on the LEFT. Reverse the camera parity and this flips.
+    const nose = viewTransform(rotateBody({ x: 0, y: 0, z: 1 }, 45, 0))
+    expect(nose.x).toBeLessThan(0)
+
+    // ...and symmetrically the other way, so this cannot pass by accident on a
+    // transform that collapses x entirely.
+    const other = viewTransform(rotateBody({ x: 0, y: 0, z: 1 }, -45, 0))
+    expect(other.x).toBeGreaterThan(0)
+  })
+})
+
 describe('mesh and projection', () => {
   it('builds a closed cylinder with a visible stripe', () => {
     const mesh = cylinderMesh()

@@ -103,8 +103,10 @@ export interface FrameMessage {
   /**
    * Vehicle uptime in ms, at the moment of sampling. GEN3 only; null otherwise.
    *
-   * This is the clock everything derived from the data belongs on — descent rate,
-   * integrated yaw, the chart x-axis — because it carries no link or scheduling jitter.
+   * This is the clock everything derived from the data belongs on — descent rate and the
+   * chart x-axis — because it carries no link or scheduling jitter. Arrival intervals
+   * carry both, and dividing them into a rate turns jitter into a plausible-looking
+   * signal.
    */
   vehicle_ms: number | null
   /** GEN3 only. Null means the generation carries no checksum, NOT that one passed. */

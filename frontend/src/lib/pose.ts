@@ -102,8 +102,15 @@ export function viewTransform(p: Vec3, elevationDeg = 22): Vec3 {
   // screen depth instead of screen height: a CanSat standing upright rendered lying on
   // its side, and only looked upright at a roll of -90 deg. Found on hardware, because
   // every test here checked the body rotation and none checked which way was up.
+  //
+  // The negated x is the second half of that same bug, found the same way. With a plain
+  // `x: p.x` this matrix has determinant -1 — a reflection, not a rotation, so the whole
+  // scene rendered mirrored. Conjugating the body rotations through that mirror leaves
+  // roll alone (its axis is normal to the mirror plane) and reverses pitch (its axis
+  // lies in it), which is exactly the "roll matches, pitch doesn't" seen on hardware.
+  // Screen right is therefore world -x, and the determinant is +1.
   return {
-    x: p.x,
+    x: -p.x,
     y: p.y * se + p.z * ce,
     z: p.y * ce - p.z * se,
   }

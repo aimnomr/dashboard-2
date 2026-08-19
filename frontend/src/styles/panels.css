@@ -103,16 +103,16 @@
 
 .attitude__mode:focus-visible { outline: 2px solid var(--trace); outline-offset: 1px; }
 
-/* Two columns since yaw joined pitch, roll and spin. As a single stack of four the
-   readout outgrew the panel and pushed the last value out of view — which on this panel
-   would silently hide the spin rate, the one figure that says whether the horizon above
-   it can be believed at all. */
+/* A single column again since yaw was removed, leaving pitch, roll and spin. Three fit
+   the panel height where four did not — the two-column form existed only to stop the
+   fourth value being pushed out of view, which would have silently hidden the spin rate,
+   the one figure that says whether the horizon above it can be believed at all. */
 .attitude__readout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(3.75rem, auto));
+  grid-template-columns: minmax(3.75rem, auto);
   gap: 0.375rem 0.875rem;
   align-content: center;
-  min-width: 9rem;
+  min-width: 5.5rem;
 }
 
 /* ---- environment ----------------------------------------------------------- */

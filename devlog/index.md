@@ -43,3 +43,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-19 · 038 · Pose model rendered on its side
 - 2026-08-19 · 039 · EJECT reaches the ground station but never the vehicle
 - 2026-08-19 · 040 · The flight unit's command path is not the fault
+- 2026-08-19 · 041 · Yaw removed, and the pose model was mirrored
+- 2026-08-19 · 042 · The GPS fault was swapped TX/RX after all
+- 2026-08-19 · 043 · The GEN2 ground unit was found, and it solved the uplink problem already

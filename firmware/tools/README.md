@@ -50,8 +50,10 @@ GPS module RX  ->  ESP32 pin 19     (the ESP32 TRANSMITS here)
 GPS VCC -> 3V3      GPS GND -> GND
 ```
 
-Note the crossover. `GPS_RX 20` in `Config.h` means *the ESP32's RX pin*, which connects to
-the module's **TX**. Wiring TX to TX is the classic failure and produces `chars=0`.
+Note the crossover. `GPS_RX 19` in `Config.h` means *the ESP32's RX pin*, which connects to
+the module's **TX**. Wiring TX to TX is the classic failure and produces `chars=0` — and it
+is what was actually wrong. The pin numbers here were reversed until 2026-08-19; see devlog
+042, which supersedes entry 026's power diagnosis.
 
 ## UART_PinTest — run this when the relay reports `chars=0`
 

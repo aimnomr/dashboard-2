@@ -23,19 +23,21 @@
  *        Baud mismatch, or a missing common ground.
  *
  *  Wiring, matching the flight unit's Config.h:
- *      GPS module TX  ->  ESP32 pin 20      (the ESP32 RECEIVES here)
- *      GPS module RX  ->  ESP32 pin 19      (the ESP32 TRANSMITS here)
+ *      GPS module TX  ->  ESP32 pin 19      (the ESP32 RECEIVES here)
+ *      GPS module RX  ->  ESP32 pin 20      (the ESP32 TRANSMITS here)
  *      GPS VCC -> 3V3,  GPS GND -> GND
  *
- *  Note the crossover. "GPS_RX 20" in Config.h means the ESP32's RX pin, which
+ *  Note the crossover. "GPS_RX 19" in Config.h means the ESP32's RX pin, which
  *  connects to the module's TX. Wiring TX-to-TX is the classic failure here and
- *  produces exactly the silence above.
+ *  produces exactly the silence above — and it is what was actually wrong, found
+ *  2026-08-19. The pin numbers above were themselves reversed until then.
  * ========================================================================= */
 
 #include <HardwareSerial.h>
 
-#define GPS_RX_PIN  20      /* ESP32 receives on this pin <- module TX */
-#define GPS_TX_PIN  19      /* ESP32 transmits on this pin -> module RX */
+/* Corrected 2026-08-19: these were swapped, which is what produced chars=0. */
+#define GPS_RX_PIN  19      /* ESP32 receives on this pin <- module TX */
+#define GPS_TX_PIN  20      /* ESP32 transmits on this pin -> module RX */
 #define VEXT_PIN    36
 
 HardwareSerial GPSSerial(1);

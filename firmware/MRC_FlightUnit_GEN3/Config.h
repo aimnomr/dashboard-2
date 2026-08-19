@@ -123,8 +123,12 @@
 #define I2C_SDA           1        /* BME280 + MPU6050 share TwoWire(1) */
 #define I2C_SCL           2
 
-#define GPS_RX            20
-#define GPS_TX            19
+/* These two were the wrong way round until 2026-08-19 — the classic TX-to-TX wiring
+ * fault, and the actual cause of `chars=0`. Entry 026 concluded the module was
+ * unpowered; it was not, it was talking into a pin that was also transmitting.
+ * GPS_RX is the ESP32's RX pin and connects to the module's TX. */
+#define GPS_RX            19
+#define GPS_TX            20
 
 #define SD_CS             4        /* HSPI */
 #define SD_SCK            5
