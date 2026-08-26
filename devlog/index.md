@@ -55,3 +55,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-20 · 050 · The contract belongs in the sidecar, not the log
 - 2026-08-20 · 051 · The uplink works, and there is a log of it
 - 2026-08-26 · 052 · Auto-eject on descent, and `ul` decoupled from `chute`
+- 2026-08-26 · 053 · GEN4 — the auto-eject trigger is configurable from the ground

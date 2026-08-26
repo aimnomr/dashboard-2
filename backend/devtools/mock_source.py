@@ -49,6 +49,17 @@ BASE_LNG = 101.71220
 CMD_EJECT = "CMD:EJECT"
 CMD_PING = "CMD:PING"
 
+#: GEN4 config commands, mirroring `MRC_GroundStation_GEN4/Config.h`.
+#:
+#: The mock accepts these because a GEN4 ground station does. It does NOT simulate
+#: their effect: there is no auto-eject rule in here to reconfigure, and inventing one
+#: would produce a mock that agrees with itself about behaviour the firmware has never
+#: demonstrated. Accepting-and-logging is the honest middle — the command path is
+#: exercised end to end, and nothing pretends the trigger was retuned.
+CMD_RESET = "CMD:RESET"
+CMD_RESET_CHUTE = "CMD:RESET:CHUTE"
+CMD_SET_PREFIX = "CMD:SET:"
+
 #: Wire format, GEN2. The ground unit appends ",{rssi:.1f},{snr:.2f}" to this.
 _PACKET_FMT = (
     "{temp:.2f},{hum:.1f},{pres:.2f},{alt:.2f},"
@@ -222,7 +233,8 @@ class MockSource(TelemetrySource):
         A mock that is lenient about the protocol is worse than no mock: it converts a
         loud failure into a silent one, and moves the discovery to launch day. These
         strings mirror `CMD_EJECT` and `CMD_PING` in
-        `firmware/MRC_GroundStation_GEN3/Config.h` and must be changed together.
+        `firmware/MRC_GroundStation_GEN3/Config.h`, and the GEN4 additions mirror
+        `firmware/MRC_GroundStation_GEN4/Config.h`. They must be changed together.
         """
         if command == CMD_EJECT:
             self._chute_deployed = True
@@ -234,6 +246,34 @@ class MockSource(TelemetrySource):
             # downlink to simulate, because a ping is confirmed on the vehicle's OLED.
             log.warning("MOCK: %s received — no downlink effect, as on hardware",
                         CMD_PING)
+            return True
+
+        if command == CMD_RESET_CHUTE:
+            # Checked before CMD_RESET. Exact comparisons, so the order cannot matter
+            # today — kept deliberate because the firmware keeps it deliberate too.
+            #
+            # This one DOES have an effect worth mirroring: on hardware it clears the
+            # fire latch so the mechanism can be driven again, while the chute COUNTER
+            # stays where it is. Clearing the flag here keeps the mock honest about the
+            # one thing RESET:CHUTE actually changes.
+            self._chute_deployed = False
+            log.warning("MOCK: %s received — chute flag cleared, counter untouched",
+                        CMD_RESET_CHUTE)
+            return True
+
+        if command == CMD_RESET:
+            # Trigger state only. The mock has no trigger state, so nothing changes —
+            # which is exactly right: RESET must never touch the chute.
+            log.warning("MOCK: %s received — trigger state only, chute untouched",
+                        CMD_RESET)
+            return True
+
+        if command.startswith(CMD_SET_PREFIX):
+            # Bounds are validated in `api.py` before anything reaches a source, and
+            # again on the vehicle. Re-checking here would be a third copy of the same
+            # numbers with no third opinion to offer.
+            log.warning("MOCK: %s received — accepted, no simulated trigger to retune",
+                        command)
             return True
 
         log.error("MOCK: unknown command %r — the ground station would reject this too",
