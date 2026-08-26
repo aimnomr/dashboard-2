@@ -51,6 +51,7 @@ bool radioServiceUplink() {
 
     if (incoming.equals(EJECT_TOKEN)) {
       heardEject   = true;
+      uplinkCount++;
       lastUplinkMs = millis();
       uplinkHeard  = true;
 
@@ -58,13 +59,21 @@ bool radioServiceUplink() {
       /* Link test. Proves the uplink works without touching the chute — this is the
        * check that can safely be run on the pad. */
       pingCount++;
+      uplinkCount++;
       lastUplinkMs = millis();
       uplinkHeard  = true;
       Serial.print("[FLT] PING received, count ");
       Serial.println(pingCount);
     }
     /* Anything else is another team's traffic. Ignored, not counted as uplink: a
-     * foreign packet must never look like our ground station. */
+     * foreign packet must never look like our ground station.
+     *
+     * uplinkCount is the `ul` telemetry field, and it is incremented HERE — inside
+     * the branches that matched one of our own tokens — rather than derived at the
+     * packet from pingCount + chuteCommands. Derivation was correct only while the
+     * chute could not move on its own; auto-eject ended that. This is the one place
+     * that can honestly answer "did we hear the ground station", so it is the one
+     * place that counts it. */
   }
 
   radio.startReceive();

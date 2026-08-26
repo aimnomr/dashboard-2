@@ -64,6 +64,16 @@ uint32_t pingCount      = 0;
 uint32_t lastUplinkMs   = 0;
 bool     uplinkHeard    = false;    /* has the ground station EVER been heard? */
 
+/* Every uplink command actually RECEIVED over the air — pings and ejects both.
+ *
+ * This is the `ul` field, and it used to be computed at the packet as
+ * `pingCount + chuteCommands`. That identity held only while the uplink was the
+ * one and only thing that could move the chute counter. Auto-eject breaks it: a
+ * vehicle that released on its own would have reported ul = 1 having never heard
+ * the ground station at all, which is the exact opposite of what this field is
+ * for. Counted at the radio now, where the evidence actually is. */
+uint32_t uplinkCount    = 0;
+
 /* Calibration quality, surfaced on the OLED. A large residual gyro bias means
  * the unit moved during calibration; 4 deg/s integrates to a full turn over a
  * flight, and that was seen on real hardware. */
@@ -104,6 +114,7 @@ void setup() {
   sdReady = storageBegin();          /* non-fatal: fly without the card */
 
   sensorsCalibrate();                /* MPU offsets, then altitude zero */
+  apogeeBegin();                     /* AFTER the altitude zero, never before */
 
   Serial.print("[FLT] ready  ");
   Serial.print(FREQ_MHZ, 1);
@@ -143,14 +154,34 @@ void loop() {
   /* ---- 2. SENSORS -------------------------------------------------------- */
   sensorsRead(tm);
 
+  /* ---- 2b. AUTO-EJECT ----------------------------------------------------
+   * Placed between the sensor read and the packet build deliberately: a release
+   * decided here is visible in THIS cycle's `chute`, not the next one. A second's
+   * delay would be invisible on the ground and is free to avoid.
+   *
+   * Counted into chuteCommands exactly like an uplink command, because the field
+   * means "release commanded" and this is a release commanded. chuteFire() is
+   * idempotent, so a ground EJECT arriving afterwards drives nothing — see the
+   * one-shot latch in Chute.ino. */
+  if (apogeeUpdate(tm.alt)) {
+    chuteCommands++;
+    chuteFire();
+    Serial.print("[FLT] chute released by AUTO-EJECT, count ");
+    Serial.println(chuteCommands);
+  }
+
   /* ---- 3. TRANSMIT ------------------------------------------------------- */
   seqNumber++;
   /* `ul` is TOTAL uplink commands received — pings plus ejects. One number above
    * zero is proof the two-way link has ever worked, which is the question that
-   * matters; pings alone are recoverable as ul - chute. Until now this lived only
-   * on the OLED, invisible once the unit is sealed. See devlog 037 and 048. */
+   * matters. Until now this lived only on the OLED, invisible once the unit is
+   * sealed. See devlog 037 and 048.
+   *
+   * `pings alone are recoverable as ul - chute` was true when the uplink was the
+   * only thing that could move `chute`, and is not true now that the vehicle can
+   * release itself. Read ul as what it is — proof of reception — and nothing more. */
   packetBuild(packetBuf, sizeof(packetBuf), tm, seqNumber, millis(),
-              chuteCommands, pingCount + chuteCommands);
+              chuteCommands, uplinkCount);
 
   int txState = radio.transmit(packetBuf);
 

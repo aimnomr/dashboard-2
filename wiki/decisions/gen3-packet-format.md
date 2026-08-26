@@ -33,8 +33,8 @@ GEN3.1  $MRC,…,<sat>,<chute>,<ul>,<hdop>,<fixq>*<CRC16>
 | 14 | `lng` | `%.5f` | deg | |
 | 15 | `spd` | `%.1f` | km/h | |
 | 16 | `sat` | `%d` | — | |
-| 17 | `chute` | `%d` | — | **0 = armed · N ≥ 1 = commanded, N = commands received** |
-| 18 | `ul` | `%lu` | — | **GEN3.1** total uplink commands received (pings + ejects). Non-zero proves the two-way link has worked |
+| 17 | `chute` | `%d` | — | **0 = armed · N ≥ 1 = commanded, N = releases commanded, from EITHER path** |
+| 18 | `ul` | `%lu` | — | **GEN3.1** uplink commands *received over the air* (pings + ejects). Non-zero proves the two-way link has worked. **Independent of `chute`** — an automatic release does not move it |
 | 19 | `hdop` | `%.1f` | — | **GEN3.1** horizontal dilution of precision. **0.0 = not reported**, never a perfect fix |
 | 20 | `fixq` | `%d` | — | **GEN3.1** receiver's own verdict: `-1` not reported · `0` invalid · `1` GPS · `2` DGPS |
 | — | `*CRC16` | `%04X` | — | **NEW** CCITT over everything between `$` and `*` |
@@ -102,9 +102,24 @@ observation that the chute is driven by a servo with no feedback sensor** — so
 way to know the parachute opened. "Command acknowledged" and "servo driven" are the same
 fact, and one field carries it.
 
-Counting rather than flagging costs the same one character and still reports uplink
-quality: `chute` is how many eject commands reached the vehicle. The ground station stops
+Counting rather than flagging costs the same one character. The ground station stops
 retrying at `chute ≥ 1`.
+
+**Revised 2026-08-26.** `chute` was "how many eject commands reached the vehicle" while the
+uplink was the only thing that could move it. The flight unit can now release itself on
+detected descent, so the field counts **releases commanded, from either path** — and it is
+no longer a measure of uplink quality. `ul` is, and it is counted at the radio precisely so
+that it stays one.
+
+Two consequences worth knowing before reading a log:
+
+- **`chute ≥ 1` with `ul = 0` is a valid and expected state.** It is an automatic release
+  on a flight where the ground station was never heard — exactly the case auto-eject exists
+  for, and previously an impossible-looking combination.
+- **After an automatic release, the ground station's EJECT button transmits nothing.**
+  `fireEjectBurst()` checks `lastChute >= 1` before its first attempt, so it reports
+  `EJECT confirmed after 0 attempt(s)` without sending. True about the chute — it is
+  already fired — but it is *not* evidence the uplink works. Use PING for that.
 
 ⚠️ **`chute ≥ 1` does not mean the parachute opened.** It means the servo was commanded.
 Nothing on this vehicle can confirm deployment. The dashboard must label this
@@ -240,8 +255,9 @@ and closes `ISS-10` by construction rather than by measurement.
 
 ## Dashboard impact — real work, not free
 
-GEN3 is a different **shape**, not another field count: start marker, checksum, 19 fields
-at the PC. The parser needs a third branch alongside GEN1 and GEN2.
+GEN3 is a different **shape**, not another field count: start marker, checksum, and 19
+fields at the PC on GEN3.0 — 22 on GEN3.1. The parser needs a third branch alongside GEN1
+and GEN2, and that branch has to accept both GEN3 shapes.
 
 Worth it, because it enables three things the dashboard currently has to refuse:
 

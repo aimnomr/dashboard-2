@@ -65,6 +65,40 @@
 #define CHUTE_SERVO_RELEASE_DEG 90
 #define CHUTE_HOLD_MS           1000   /* servo only: time to reach position */
 
+/* ---- AUTO-EJECT ----------------------------------------------------------
+ * Release on detected descent, without waiting for a command. A BACKUP to the
+ * uplink, never a replacement: the ground station can still fire at any time,
+ * and this can still fire if the ground station is never heard.
+ *
+ * The rule is a drop from the highest altitude seen so far:
+ *
+ *     apogee - alt >= AUTO_EJECT_DROP_M, for AUTO_EJECT_CONFIRM_N cycles
+ *
+ * All four numbers are meant to be changed. Tune them here and nowhere else —
+ * Apogee.ino reads these and holds no constants of its own.
+ *
+ * AUTO_EJECT_ARM_ALT_M is the safety interlock and the reason this cannot fire
+ * on the pad. Altitude is relative to boot (Sensors.ino zeroes it at the end of
+ * calibration), so a unit sitting on the ground reads ~0 and drifts by tens of
+ * centimetres. Without an arming floor, that drift sets an "apogee" of a few
+ * centimetres and any dip below it is a live trigger a metre off the ground.
+ * With it, the vehicle must genuinely FLY before the rule is allowed to act.
+ *
+ * The failure direction is deliberate: a flight that never reaches the arming
+ * altitude never arms, and the uplink remains the only path. Never arming is a
+ * recoverable disappointment; arming on the pad is not.
+ *
+ * AUTO_EJECT_CONFIRM_N is measured in CYCLES, so at CYCLE_PERIOD_MS = 1000 it is
+ * also seconds. Each cycle of confirmation costs real altitude — roughly 6 m
+ * against the wiki's modelled descent, and 30 m or more in genuine freefall —
+ * and buys immunity to a single anomalous pressure reading. 3 is the chosen
+ * balance, not a floor: 1 is legitimate if the barometer proves quiet in flight.
+ */
+#define ENABLE_AUTO_EJECT       1
+#define AUTO_EJECT_ARM_ALT_M    30.0f  /* must climb past this before it can fire  */
+#define AUTO_EJECT_DROP_M       10.0f  /* apogee - alt that counts as descending   */
+#define AUTO_EJECT_CONFIRM_N    3      /* consecutive qualifying cycles to fire    */
+
 /* ---- SENSORS -------------------------------------------------------------- */
 #define BME_ADDR          0x76
 #define MPU_ADDR          0x68

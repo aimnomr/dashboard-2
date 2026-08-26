@@ -197,11 +197,13 @@ server-side only — a frontend parser would be a second implementation, free to
 
 ```jsonc
 { "type": "frame", "rx_index": 42, "pc_time": "2026-08-18T10:22:01.123Z",
-  "raw": "32.50,78.0,...,CHUTE:0,-55.6,9.33", "ok": true,
-  "frame": { "temp": 32.5, "…": "…", "chute": 0, "rssi": -55.6, "snr": 9.33 } }
+  "raw": "$MRC,412,412340,31.52,...,9,0,3,1.4,1*32BA,-55.6,9.3", "ok": true,
+  "frame": { "temp": 31.52, "…": "…", "chute": 0, "ul": 3, "hdop": 1.4, "fixq": 1,
+             "rssi": -55.6, "snr": 9.3 } }
 
 { "type": "frame", "rx_index": 43, "raw": "32.5,78.0,BAD", "ok": false,
-  "frame": null, "error": "expected 17 fields, got 3" }
+  "frame": null,
+  "error": "expected a GEN3 packet starting with '$', or 17 fields (GEN2) or 16 (GEN1), got 3" }
 
 { "type": "status", "raw": "[GCS] Timeout - no packet" }
 

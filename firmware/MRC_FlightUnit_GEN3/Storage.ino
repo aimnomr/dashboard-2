@@ -45,9 +45,15 @@ bool storageBegin() {
   /* The log holds complete GEN3 packets, framing and checksum included, so the
    * card is a byte-faithful record of what was transmitted and can be replayed
    * through the same parser as the downlink. A bare CSV header would describe
-   * something this file does not contain. */
-  f.println("# MRC CanSat GEN3 flight log");
-  f.println("# $" TEAM_ID ",seq,ms,temp,hum,pres,alt,ax,ay,az,gx,gy,gz,lat,lng,spd,sat,chute*CRC16");
+   * something this file does not contain.
+   *
+   * ⚠ This header is a hand-written copy of the wire format and it has already
+   * drifted once: it described GEN3.0's 17 fields for as long as GEN3.1 firmware
+   * was flying, so every card written in between explained itself wrongly by three
+   * columns. If Packet.ino's format string changes, this line changes with it —
+   * nothing in the build will catch it for you. */
+  f.println("# MRC CanSat GEN3.1 flight log");
+  f.println("# $" TEAM_ID ",seq,ms,temp,hum,pres,alt,ax,ay,az,gx,gy,gz,lat,lng,spd,sat,chute,ul,hdop,fixq*CRC16");
   f.close();
 
   Serial.print("[FLT] logging to ");

@@ -75,12 +75,23 @@ void displayTelemetry(const Telemetry &t) {
 
   /* 5 — chute state and uplink health, the two things that decide whether this
    * unit is safe and controllable. "CMD" not "DEPLOYED": nothing on board can
-   * confirm the canopy opened. */
+   * confirm the canopy opened, and that is as true of an automatic release as a
+   * commanded one — "AUTO" below means the rule fired, not that a canopy opened.
+   *
+   * "ARMED+A" is the chute unfired with auto-eject armed behind it. Two different
+   * senses of "armed" share this line: the chute is armed until it fires, and the
+   * auto-eject rule is armed once the vehicle has climbed past its floor. On the
+   * pad the correct reading is a bare "ARMED" — a "+A" before launch would mean
+   * the arming altitude had been crossed while the unit sat there. */
   char chuteStr[12];
   if (chuteCommands > 0) {
-    snprintf(chuteStr, sizeof(chuteStr), "CMD x%lu", (unsigned long)chuteCommands);
+    /* "AUTO" vs "CMD" is the only place the CAUSE of a release is visible at the
+     * pad. The packet carries one chute counter for both paths by design, so if
+     * this glass does not say which fired, nothing does until the log is read. */
+    snprintf(chuteStr, sizeof(chuteStr), "%s x%lu",
+             apogeeDidFire() ? "AUTO" : "CMD", (unsigned long)chuteCommands);
   } else {
-    snprintf(chuteStr, sizeof(chuteStr), "ARMED");
+    snprintf(chuteStr, sizeof(chuteStr), "ARMED%s", apogeeIsArmed() ? "+A" : "");
   }
 
   if (uplinkHeard) {
