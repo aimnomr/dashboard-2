@@ -36,6 +36,9 @@ There is deliberately **no flag on `python -m dashboard` that selects simulated 
 Mock telemetry lives in a separate package with its own entry point so it cannot be
 reached by accident at the pad. See `backend/devtools/README.md`.
 
+Every command this system is run by — replay, mock, uplink, tests, diagnostics — with
+its flags and its caveats: **[`COMMANDS.md`](COMMANDS.md)**.
+
 ## Layout
 
 ```
@@ -48,6 +51,7 @@ wiki/                project knowledge base
   issues.md            issue tracker (ISS-xx)
 devlog/              append-only record of executed changes
 status.md            current state — read at session start
+COMMANDS.md          every command, with flags and caveats
 ```
 
 ## Where to start reading
