@@ -87,9 +87,28 @@ export function lossPresentation(stats: LinkStats | null) {
   }
 }
 
-/** Chute has three states, not two. Null means unknown, never "safe". */
+/**
+ * Chute has three states, not two. Null means unknown, never "safe".
+ *
+ * Rule S8, and it took until 2026-08-29 to implement. Two things were wrong.
+ *
+ * **The word.** "Deployed" is a claim about a canopy, and no sensor in this system can
+ * support it. The vehicle reports that it drove the mechanism; whether anything opened is
+ * unknown to every part of this stack. "Commanded" is the strongest honest word.
+ *
+ * **The test.** This compared `chute === 1`, so a counter reading 2 fell through to
+ * "Unknown" — on a vehicle whose chute had demonstrably fired. Two is reachable in normal
+ * use: an eject burst spans more than one vehicle cycle, and RESET:CHUTE then EJECT is a
+ * supported bench workflow (devlog 058). The count is now shown rather than matched,
+ * which is what S8 asked for and is also the only version that cannot go stale as the
+ * number grows.
+ */
 export function chutePresentation(chute: number | null | undefined) {
-  if (chute === 1) return { label: 'Deployed', icon: '◆', tone: 'alert' as const }
   if (chute === 0) return { label: 'Armed', icon: '○', tone: 'ok' as const }
+  // Deliberately `> 0` and not `!== 0`: a negative would be corruption, and corruption
+  // reads as unknown rather than as a release.
+  if (typeof chute === 'number' && chute > 0) {
+    return { label: `Commanded ×${chute}`, icon: '◆', tone: 'alert' as const }
+  }
   return { label: 'Unknown', icon: '?', tone: 'unknown' as const }
 }

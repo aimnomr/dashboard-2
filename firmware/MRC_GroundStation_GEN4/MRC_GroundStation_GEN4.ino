@@ -56,6 +56,24 @@ uint32_t lastPacketMs   = 0;   /* 0 = nothing received yet */
 bool     ejectConfirmed = false;
 uint8_t  ejectAttempts  = 0;
 
+/* The value of `chute` above which a release counts as a NEW one.
+ *
+ * 0 from boot, so `lastChute > chuteBaseline` is identical to the old
+ * `lastChute >= 1` on a fresh session — this changes nothing until RESET:CHUTE is
+ * used.
+ *
+ * It exists because the vehicle deliberately does NOT zero its chute counter when
+ * RESET:CHUTE clears the fire latch (Apogee.ino: zeroing it would make an already
+ * fired chute look armed to the operator, "the one lie this system must not
+ * tell"). So after a reset the counter still reads 1, and a burst testing for
+ * `>= 1` confirms instantly against the PREVIOUS release and transmits nothing —
+ * which made RESET:CHUTE useless over the air, the exact opposite of what it is
+ * for. Recording where the counter stood at reset time is how the next release is
+ * distinguished from the last one, without asking the vehicle to lie.
+ *
+ * Same shape as the `ul` baseline in fireConfigBurst(), on purpose. */
+int      chuteBaseline  = 0;
+
 bool     pingPending    = false;
 uint32_t pingRequestedMs = 0;
 uint32_t pingsSent      = 0;
@@ -86,6 +104,21 @@ void setup() {
   Serial.print(SPREADING);
   Serial.print(" team ");
   Serial.println(TEAM_ID);
+
+  /* Which binary is actually running.
+   *
+   * __DATE__ and __TIME__ are filled in by the COMPILER, so this line cannot be
+   * faked by an editor buffer that was never rebuilt. It exists because a whole
+   * debugging round was lost to the question "did that upload take?" — the Arduino
+   * IDE compiles its in-memory editor text, not the file on disk, so a sketch left
+   * open across an external edit uploads the OLD code with no warning anywhere.
+   *
+   * If this stamp does not move after an upload, nothing was rebuilt. Check that
+   * before doubting the change. */
+  Serial.print("[GCS] build ");
+  Serial.print(__DATE__);
+  Serial.print(" ");
+  Serial.println(__TIME__);
 
   radio.startReceive();
 }

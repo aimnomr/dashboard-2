@@ -249,6 +249,17 @@ python -m devtools.send_command RESET:CHUTE
   confirmation signal for the eject burst, and zeroing it would make an already-fired
   chute look armed to the operator. `RESET` clears trigger state; `RESET:CHUTE` clears
   trigger state and the fire latch. Both leave `chute` where it is.
+- **`RESET:CHUTE` also re-arms the GROUND station, and only if the vehicle confirmed.**
+  The ground unit holds two latches of its own — `ejectConfirmed`, and the burst's test
+  against `chuteBaseline` — and until 2026-08-29 neither was cleared by a reset, so
+  `EJECT` afterwards printed `EJECT already confirmed, ignoring` and transmitted nothing.
+  Expect `[GCS] EJECT re-armed at ground, chute baseline N` on success. On failure it
+  says `EJECT still latched here - the vehicle did not confirm` and stays latched, which
+  is the safe direction: the vehicle's own fire latch is still set, so a transmitted
+  EJECT would raise `chute` and drive nothing.
+- **A re-armed release takes `chute` to 2.** That is correct — the counter means
+  "releases commanded", and two were. Note the dashboard currently renders only
+  `chute === 1` as deployed.
 - **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
   BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
   cycle against a fresh apogee and fires again once it has dropped `DROP` from there.

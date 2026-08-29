@@ -17,13 +17,22 @@ const CONFIRM_TIMEOUT_MS = 6_000
 export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProps) {
   const [armedAt, setArmedAt] = useState<number | null>(null)
   const [sentAt, setSentAt] = useState<number | null>(null)
+  /* What `chute` read at the moment Eject was pressed, so THIS command can be confirmed
+     rather than the one before it. The counter is monotonic and never returns to zero —
+     not even on RESET:CHUTE, which clears the vehicle's fire latch and deliberately
+     leaves the count alone. Testing an absolute value instead is the same bug that made
+     the ground station refuse to re-send EJECT after a reset (devlog 058). */
+  const [chuteAtSend, setChuteAtSend] = useState<number | null>(null)
   const [pingAt, setPingAt] = useState<number | null>(null)
 
   const chute = latest?.frame.chute ?? null
   /* Total uplink commands the vehicle reports receiving. GEN3.1 only — null on older
      firmware, which is NOT the same as zero and must not be shown as a count. */
   const ul = latest?.frame.ul ?? null
-  const deployed = chute === 1
+  /* Releases COMMANDED, from either path — an uplink EJECT or the vehicle's own
+     auto-eject. Never "deployed": no canopy sensor exists anywhere in this system, so
+     that word is a claim nothing here can support (rule S8). */
+  const commanded = chute !== null && chute > 0
 
   useEffect(() => {
     if (armedAt === null) return
@@ -37,6 +46,7 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
   const fire = () => {
     sendCommand('eject')
     setSentAt(Date.now())
+    setChuteAtSend(chute)
     setArmedAt(null)
   }
 
@@ -45,7 +55,13 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
     setPingAt(Date.now())
   }
 
-  const awaitingConfirmation = sentAt !== null && !deployed
+  /* Relative to the press, not absolute. On a re-armed unit `chute` is already 1 when
+     Eject is pressed again, and an absolute test would report the new command confirmed
+     before it had been sent. Null baseline (firmware with no chute field) never rises,
+     which is the honest answer for a vehicle that cannot report this at all. */
+  const roseSinceSend =
+    sentAt !== null && chute !== null && chuteAtSend !== null && chute > chuteAtSend
+  const awaitingConfirmation = sentAt !== null && !roseSinceSend
   const confirmationOverdue = awaitingConfirmation && now - sentAt > CONFIRM_TIMEOUT_MS
   const pingAck = lastAck?.command === 'PING' ? lastAck : null
 
@@ -53,9 +69,9 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
     // Titled for the path, not for the one dangerous command on it: this panel now
     // carries both uplink commands the ground station accepts.
     <Panel title="Uplink" area="eject">
-      {deployed ? (
+      {commanded ? (
         <div className="notice notice--alert" style={{ fontWeight: 800 }}>
-          <span aria-hidden="true">◆</span> Chute deployed
+          <span aria-hidden="true">◆</span> Release commanded ×{chute}
         </div>
       ) : (
         <div className="eject__controls">
@@ -95,11 +111,11 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
             <span className="label">Vehicle</span>
             <div
               className={`chip chip--${
-                deployed ? 'alert' : confirmationOverdue ? 'warn' : 'unknown'
+                roseSinceSend ? 'alert' : confirmationOverdue ? 'warn' : 'unknown'
               }`}
             >
-              {deployed
-                ? '◆ Confirmed'
+              {roseSinceSend
+                ? '◆ Mechanism driven'
                 : confirmationOverdue
                   ? '▲ No confirmation'
                   : '○ Awaiting…'}
@@ -108,10 +124,10 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
         </div>
       )}
 
-      {!deployed && (
+      {!commanded && (
         <p className="panel__footnote">
-          No acknowledgement path — deployment is only confirmed by CHUTE:1 arriving in
-          telemetry.
+          No acknowledgement path — the only signal is `chute` rising in later telemetry,
+          and that reports the mechanism was driven, never that a canopy opened.
         </p>
       )}
 

@@ -97,7 +97,36 @@ void handleCommand(const char *line) {
     /* Checked BEFORE CMD_RESET. These are strcmp, so exact — "CMD:RESET" cannot
      * swallow "CMD:RESET:CHUTE" — but the order is kept deliberate anyway. */
     Serial.println("[GCS] RESET:CHUTE armed - this re-arms a FIRED chute");
-    fireConfigBurst(RESET_CHUTE_TOKEN);
+
+    /* Captured BEFORE the burst: fireConfigBurst() polls the radio between
+     * attempts, so lastChute is live while it runs. The vehicle does not move its
+     * chute counter on a reset, so this will not change under us — but reading it
+     * first is correct regardless of that. */
+    int baselineAtReset = lastChute;
+
+    /* Clear the ground station's eject latches ONLY if the vehicle confirmed.
+     *
+     * Confirmation is `ul` rising during the burst, which for this command is
+     * stronger than it is for SET: there is no rejection path in apogeeReset(), so
+     * a RESET:CHUTE that was RECEIVED was applied. For SET, `ul` rising proves
+     * receipt and not application, which is why that distinction is laboured
+     * everywhere else.
+     *
+     * Clearing them unconditionally would be worse than not clearing them at all.
+     * If the vehicle never heard the reset its fire latch is still set, and an
+     * EJECT sent afterwards would transmit, be received, increment `chute` to 2,
+     * and drive nothing — a release the operator has been shown and that never
+     * happened. */
+    if (fireConfigBurst(RESET_CHUTE_TOKEN)) {
+      ejectConfirmed = false;
+      chuteBaseline  = (baselineAtReset >= 0) ? baselineAtReset : 0;
+      Serial.print("[GCS] EJECT re-armed at ground, chute baseline ");
+      Serial.println(chuteBaseline);
+      Serial.println("[GCS] the next release must exceed that to confirm");
+    } else {
+      Serial.println("[GCS] EJECT still latched here - the vehicle did not confirm");
+      Serial.println("[GCS] resend RESET:CHUTE; do NOT assume the chute is re-armed");
+    }
     return;
   }
 
@@ -218,7 +247,7 @@ bool configValueInRange(const char *arg) {
  *  Against a vehicle that does not report `ul` at all, baseline stays -1, nothing
  *  ever looks like a rise, and the burst runs to completion and says so.
  * ----------------------------------------------------------------------- */
-void fireConfigBurst(const char *token) {
+bool fireConfigBurst(const char *token) {
   int baseline = lastUl;
 
   for (uint8_t i = 0; i < CONFIG_ATTEMPTS; i++) {
@@ -231,7 +260,7 @@ void fireConfigBurst(const char *token) {
       Serial.print(baseline);
       Serial.print(" -> ");
       Serial.println(lastUl);
-      return;
+      return true;
     }
 
     bool sent = radioTransmit(token);
@@ -254,7 +283,7 @@ void fireConfigBurst(const char *token) {
     Serial.print("[GCS] ");
     Serial.print(token);
     Serial.println(" confirmed on the final attempt");
-    return;
+    return true;
   }
 
   Serial.print("[GCS] ");
@@ -263,6 +292,7 @@ void fireConfigBurst(const char *token) {
   Serial.print(CONFIG_ATTEMPTS);
   Serial.println(" attempts - ul did not rise");
   Serial.println("[GCS] the vehicle may be GEN3 (no ul), out of range, or deaf");
+  return false;
 }
 
 /* --------------------------------------------------------------------------
@@ -279,10 +309,17 @@ void fireEjectBurst() {
     /* Stop early if the vehicle has already reported it. radioPoll() keeps
      * lastChute current between attempts, since receive is restored each time.
      *
-     * NOTE: chute >= 1 means the vehicle received the command and drove the
+     * Tested against chuteBaseline rather than against 1. They are the same number
+     * until RESET:CHUTE moves the baseline, and after it they are the difference
+     * between "a chute has been released at some point" and "a chute has been
+     * released since I re-armed it" — only the second is a confirmation of THIS
+     * burst. See chuteBaseline in the main sketch for why the vehicle's counter
+     * cannot simply be zeroed instead.
+     *
+     * NOTE: a rise here means the vehicle received the command and drove the
      * servo. It does NOT mean the parachute opened — there is no feedback
      * sensor. Nothing downstream may claim otherwise. */
-    if (lastChute >= 1) {
+    if (lastChute > chuteBaseline) {
       ejectConfirmed = true;
       Serial.print("[GCS] EJECT confirmed after ");
       Serial.print(i);

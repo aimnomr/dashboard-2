@@ -1,125 +1,149 @@
 # Status
 
-**Updated** 2026-08-26 · end of session 5
+**Updated** 2026-08-29 · end of session 7
 
 ## Now
 
-**The vehicle can deploy its own parachute, and the trigger can be retuned without
-reflashing it.** Two commits, both on `main`:
+**The GEN4 pair reached hardware for the first time, and it found two bugs the desk
+could not.** Everything up to a second EJECT works on the bench; the re-arm path does
+not, and the fix for it is written but **not yet flashed**.
+
+Branch **`feature/apogee-trigger`**, four commits ahead of `main`:
 
 ```
-72c9768  Add auto-eject on descent, decouple ul from chute      (devlog 052)
-089d0b9  Add GEN4: auto-eject trigger configurable over uplink  (devlog 053)
+b72de9e  Fix the CHUTE_PIN divergence and audit the command reference   (057)
+fdecc00  Add a numeric packet readout, fed by the backend's field table (056)
+d4235a6  Add COMMANDS.md, a full command reference                      (054)
+089d0b9  Add GEN4: auto-eject trigger configurable over the uplink      (053)
 ```
 
-**GEN3 gained auto-eject.** `Apogee.ino` tracks the highest altitude seen and fires
-when the vehicle has descended `AUTO_EJECT_DROP_M` below it for `AUTO_EJECT_CONFIRM_N`
-consecutive cycles — defaults **30 m arm · 10 m drop · 3 cycles**. The arming floor is
-the whole safety argument: altitude is relative to boot, so without it pad drift sets a
-false apogee and any dip below it is a live trigger a metre off the ground.
+`main` is still at `72c9768`. **The previous status.md said 089d0b9 was on `main`. It is
+not** — it is on this branch, and so is everything after it. Nothing has merged since
+session 5.
 
-**`ul` had to be decoupled from `chute`.** It was computed at the packet as
-`pingCount + chuteCommands`, an identity that only held while the uplink was the sole
-thing that could move the chute counter. A self-releasing vehicle would have reported
-`ul = 1` having never heard the ground station — inverting the one field that exists to
-prove reception. It is counted at the radio now.
+### What was confirmed on hardware
 
-**`chute` therefore means "releases commanded, from either path"**, not "eject commands
-received", and is no longer a measure of uplink quality. `chute ≥ 1` with `ul = 0` is now
-a valid state: an automatic release on a flight where the ground was never heard.
+```
+PING         -> ul rose               ✓
+EJECT        -> servo threw           ✓
+RESET:CHUTE  -> servo returned ARMED  ✓
+EJECT        -> nothing               ✗
+```
 
-**GEN4 makes the trigger configurable in flight** — `SET:DROP` `SET:CYCLES` `SET:ARM`
-`SET:AUTO`, plus `RESET` and `RESET:CHUTE`. New sketch folders; **GEN3 is untouched and
-stays flashable**, because it is the only pair proven on hardware (entry 051). The packet
-stays GEN3.1 byte for byte, so the parser, contract, dashboard and all 214 tests needed
-nothing.
+The first three are the first real proof that the GEN4 uplink works end to end. The
+fourth is `ISS-17` below.
 
-Session 4 found out whether the dashboard was telling the truth. Session 5 gave the
-vehicle a way to save itself, and then a way to be argued with about how.
+### Sessions 6 and 7, which never reached this file
+
+**054** `COMMANDS.md` — every command, flags and traps, assembled from the argparse
+definitions rather than the README. **055** the release mechanism became a servo in both
+generations (`CHUTE_USE_SERVO 1`, 90°/160°), with `ServoEjectTest` committed as a bench
+rig.
+
+**056** the channels view gained a **numeric packet readout** — all 22 fields in wire
+order, each at the precision the firmware transmits, with a change column and a `flat N`
+marker for a channel that has stopped moving. The field table is generated from
+`parser.FIELD_DOC` and delivered in the session message, so the frontend holds no copy
+that can drift. **057** `CHUTE_PIN` was `D3` in GEN4 and `3` in GEN3 — reconciled to `3`,
+now confirmed correct on hardware. `COMMANDS-QUICK.md` added.
+
+**058, 059** the two bugs from the bench run. Both written, **neither flashed nor
+committed.**
 
 ## Next
 
-0. **Nothing built this session has been compiled.** No Arduino toolchain here — Aiman
-   builds and flashes. That is the first gate on everything below.
-1. **`AUTO_EJECT_CONFIRM_N` needs a real descent rate.** Traced against the wiki's V7
-   profile it fires 23 m below a 150 m apogee. At genuine freefall — 30 m/s — the same
-   three cycles cost **90 m**, deploying at 60 m. Three cycles is three seconds, and
-   three seconds is cheap only while the vehicle falls slowly. One-character change;
-   the right value is unknown until something has actually fallen.
-2. **Nothing pins the apogee state machine.** `verify_gen3.py` pins the packet; the
-   trigger was checked by a throwaway Python trace, not a committed test. That trace
-   caught a real error (see item 3), which is the argument for keeping one.
-3. **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
-   BOOT, not a climb, so a vehicle still high when RESET arrives re-arms on the next
-   cycle and fires lower. `SET:AUTO:0` is the cancel. A power cycle *does* prevent
-   re-arming — but only because it re-zeroes the barometric baseline too.
-4. **`backend/devtools/mock_source.py` still emits GEN2** — no `$MRC`, no CRC, `CHUTE:n`.
-   It now also cannot exercise auto-eject or GEN4 at all. This was Next item 6 last
-   session and has grown a second reason.
-5. **`ISS-13` link quality** — 53% cumulative loss and RSSI -109 dBm early in the
-   20 August session, recovering to -24. Still the largest open problem.
-6. **`az` reads ~0.92 g at rest**, not 1.00. Check `MPU_ACCEL_RANGE` (0x10) against
-   `MPU_ACCEL_SCALE` (4096.0). Everything derived from attitude inherits it.
-7. **The gyro emits single-sample spikes** of 70-190 deg/s while stationary. Debounced
-   on the dashboard, still written to SD as fact.
-8. **The pose model has still never been checked in a browser.** Three sign errors
-   fixed in `viewTransform`, every one found on hardware rather than by a test.
-9. **`lib/link.ts` still renders the chute as "Deployed"**, which S8 forbids — and the
-   word is now wronger than it was, since a release may be automatic. Two lines,
-   recorded in five places, still unbuilt. The oldest debt in the tree.
-10. **No wiki page for the GEN4 uplink grammar.** The wiki records what is true, and
-    the command set currently exists only in firmware headers and devlog 053.
-11. **No dashboard UI for GEN4 commands** — `python -m devtools.send_command <cmd>`
-    from a second terminal is the only path. Needs `websockets` in the venv.
-12. Field-laptop dry run (`ISS-12`). The checklist exists; running it does not.
-13. Replace the placeholder cylinder in `cylinderMesh()` — Aiman's.
+0. **Reflash the ground unit, then re-run `PING → EJECT → RESET:CHUTE → EJECT`.** This is
+   the only gate that matters. `ISS-17` is fixed in the working tree and unproven.
+1. **The reflash on 2026-08-29 did not take.** The Arduino IDE compiles its in-memory
+   editor buffer, not the file on disk, so a sketch left open across an external edit
+   uploads the old code silently. A `[GCS] build <date> <time>` stamp was added to the
+   ground station boot to make this unambiguous — `__DATE__`/`__TIME__` come from the
+   compiler and cannot survive a stale buffer. **Close the IDE completely before
+   reopening and uploading.** If the stamp does not move, nothing was rebuilt.
+2. **Auto-eject has still never been tested, and needs no reflash.** It is entirely
+   vehicle-side and the vehicle firmware is correct. `SET:ARM:5.0`, `SET:DROP:2.0`, then
+   a stairwell. Expect `chute` 0→1 with **`ul` unchanged** — that pair is the only
+   ground-side proof a release was automatic.
+3. **`AUTO_EJECT_CONFIRM_N` still needs a real descent rate.** Three cycles is three
+   seconds; at 30 m/s that is 90 m, deploying at 60 m from a 150 m apogee. Unchanged
+   since session 5 and unanswerable until something falls.
+4. **Nothing pins the apogee state machine.** Sessions 5 and 7 both used throwaway Python
+   traces, and both caught real errors — the RESET re-arming behaviour, and the eject
+   latch interaction. That is now twice; the trace should be committed.
+5. **`backend/devtools/mock_source.py` still emits GEN2** — no `$MRC`, no CRC. It cannot
+   exercise auto-eject, GEN4, or the packet readout. Third session running.
+6. **`ISS-13` link quality** — unchanged, still the largest open problem.
+7. **`az` reads ~0.92 g at rest.** Check `MPU_ACCEL_RANGE` against `MPU_ACCEL_SCALE`.
+8. **The gyro emits single-sample spikes** of 70–190 deg/s while stationary.
+9. **The pose model has still never been checked in a browser.**
+10. **No dashboard UI for the GEN4 commands** — `send_command` remains the only path.
+11. **No wiki page for the GEN4 uplink grammar.**
+12. **`wiki/decisions/frontend.md:60` is now false** — it still says `lib/link.ts` renders
+    "Deployed". It does not, as of 059. `wiki/issues.md` is behind on sessions 4 to 7.
+13. Field-laptop dry run (`ISS-12`). Replace the placeholder cylinder in `cylinderMesh()`.
 
 ## Blocked
 
-- `ISS-13` — **frequency coordination**. Unblocking needs a clear frequency, not code.
+- `ISS-17` — **the eject re-arm.** Fixed in the working tree, blocked on a ground reflash.
+- `ISS-13` — frequency coordination. Needs a clear frequency, not code.
 - `ISS-06` — competition requirements unknown; `wiki/source/competition/` still empty.
 - `ISS-12` — field laptop not provisioned or dry-run.
-- **OLED dead on the current flight unit.** Not blocking: `ul` supersedes every check
-  that needed the screen. Note GEN4 put the auto/commanded distinction on that glass —
-  `AUTO x1` vs `CMD x1` — so on this unit it is invisible until the SD card is read.
+- **OLED dead on the current flight unit.** `AUTO x1` vs `CMD x1` is therefore invisible
+  until the SD card is read, on both generations — session 5's note that this was a GEN4
+  addition was wrong, GEN3 has had it since 052.
+
+## New this session
+
+*Neither is in `wiki/issues.md` yet — that file is behind on sessions 4 to 7 and is
+edited deliberately, not in passing. `ISS-16` was already taken (Replay not built).*
+
+**`ISS-17` · RESET:CHUTE could not re-arm the chute over the air.** Two latches on the
+GROUND station — `ejectConfirmed`, and the eject burst's `lastChute >= 1` early exit —
+and a reset cleared neither. The vehicle was always correct: it received the command and
+cleared its fire latch, which is why the servo returned to ARMED. The ground station then
+refused to send the EJECT that would exercise it. So the feature `Apogee.ino:41` calls
+"the ONLY way to re-run a deployment test on a sealed unit" has never worked since it was
+written. Fixed in 058 by baselining the burst the way `fireConfigBurst` already baselines
+`ul`, and clearing the latches only on a confirmed reset. **Ground unit reflash only — the
+vehicle needs no change.**
+
+**`ISS-18` · the dashboard rendered a fired chute as "Unknown".** `chutePresentation`
+tested `chute === 1`, so a count of 2 fell through to Unknown with the Arm and Eject
+controls restored beneath it. Not hypothetical: `20260829-125122` reaches 2 and
+`20260827-120125` reaches 3, both already in `logs/raw/`. Fixed in 059 by implementing
+rule S8 properly — `Commanded ×N`, never "Deployed", with six tests where there were
+none. This closes what session 5 called "the oldest debt in the tree", and it was two
+bugs rather than the one line recorded.
 
 ## Deferred by decision
 
-- **A GEN3.2 packet bump for auto-eject visibility** — declined 2026-08-26, twice. The
-  consequence is accepted and worth restating: `ul` rising proves the vehicle received
-  A command, never which one or what value it applied. A sealed, flying vehicle cannot
-  be asked what it is configured to do. Bench USB and the SD card `#` lines answer it
-  afterwards.
-- **2 Hz telemetry** — rejected (entry 036). The cycle budget does not close.
-- **Packing existing fields** — rejected 2026-08-20. ~5% airtime, not worth a format
-  bump alone.
-- **`vb` battery field and `st` status bitmask** — deferred. `vb` is gated on hardware:
-  the Heltec V3's battery ADC is GPIO1, which `Config.h` already uses for `I2C_SDA`.
-- **Ground station SD logging** — declined. It stays a pure pass-through.
+- **A GEN3.2 packet bump for auto-eject visibility** — declined 2026-08-26, twice. Stands.
+  Session 7 reconfirmed the cost: with `ul > 0`, the ground cannot distinguish an
+  automatic release from a commanded one. Only `chute ≥ 1` with `ul = 0` proves auto.
+- **2 Hz telemetry** — rejected (036). **Packing existing fields** — rejected 2026-08-20.
+- **`vb` battery and `st` status bitmask** — deferred; `vb` is gated on hardware.
+- **Ground station SD logging** — declined, it stays a pure pass-through.
+- **The bench servo pin stays at 18** while `CHUTE_PIN` is 3. Deliberate and documented at
+  `ServoEjectTest.ino:27` — different chip, different board. Flagged as drift twice in one
+  session by reading the value without the comment above it.
 - `ISS-15` SQLite — same stream as the raw log, dies with the same laptop.
 
 ## Notes for next session
 
-- **GEN4 must be flashed to BOTH units** for `SET`/`RESET` to work. Unlike the
-  GEN3.0/GEN3.1 split, a mismatched GEN4 pair degrades safely in both directions: a
-  GEN3 vehicle ignores `SET` and never moves `ul`, so a GEN4 ground station reports
-  failure loudly rather than pretending.
-- **After an automatic release, the ground station's EJECT button transmits nothing.**
-  `fireEjectBurst()` checks `lastChute >= 1` first and reports `EJECT confirmed after 0
-  attempt(s)` without sending. True about the chute; not evidence the uplink works.
-  Use PING for that. Applies to GEN3 and GEN4 alike; left unfixed deliberately.
-- **The SD header was stale.** It described GEN3.0's 17 fields for as long as GEN3.1 was
-  flying, so every card written in between misdescribed itself by three columns. Fixed
-  in both generations. It is a hand-written copy of the format and nothing in the build
-  will catch it drifting again.
-- **GEN4 writes `#` config lines to the SD card** mid-file whenever the trigger is
-  reconfigured. Verified they parse as status, not as rejected frames.
-- **Auto-eject bounds live in three places** — `api.py`, the GEN4 ground station, the
-  GEN4 vehicle. Change them together; all three files say so.
-- **`wiki/issues.md` is still behind.** `ISS-02` resolved, `ISS-14` resolved (entry 042),
-  `ISS-08` long resolved. None of it reflects session 4 or 5.
-- `wiki/source/hardware/flight-unit.md:60` describes the GEN1/GEN2 SD format. Stale and
-  deliberately not corrected — `source/` is external fact.
-- **214 tests: 141 backend, 73 frontend.** Plus `firmware/tests/verify_gen3.py`, 14/14.
-  Unchanged this session — the packet never moved.
-- Devlog 052-053 this session. Working tree clean; both commits on `main`.
+- **245 tests: 145 backend, 100 frontend**, plus `verify_gen3.py` 14/14.
+- **Ten files are uncommitted** — all of 058 and 059, plus this file. Tests green,
+  typecheck clean.
+- **`chute` will reach 2 on a successful re-arm test**, and that is correct — the counter
+  means "releases commanded", and two were. The dashboard now says so.
+- **The GEN4 flight sketch still prints `MRC Flight Unit GEN3 booting`** and shows
+  `MRC FLIGHT GEN3` on the OLED. Cosmetic, in `MRC_FlightUnit_GEN4.ino:109,116,142`, and
+  actively confusing while debugging a flash. Not fixed — it would mean a vehicle reflash
+  for a banner.
+- **A build stamp exists on the ground station only.** The flight unit has none.
+- **`COMMANDS.md` was audited against the code in 057** and carried two false statements
+  about `RESET:CHUTE` — the most dangerous command in the system, four days after being
+  written. The check is cheap: capture `--help`, import the command tables, compare.
+  Re-run it whenever the grammar moves.
+- **Auto-eject bounds now live in four places** — `api.py`, the GEN4 ground station, the
+  GEN4 vehicle, and `COMMANDS.md`.
+- Devlogs 056–059 this session.

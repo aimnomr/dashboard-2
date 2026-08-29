@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { attitudeWarning, computeAttitude, UNRELIABLE_CONFIRM } from '../attitude'
 import { fixStale, hasFix, hasLiveFix, niceScale, toLocal } from '../geo'
-import { formatMeasurement, lossPresentation } from '../link'
+import { chutePresentation, formatMeasurement, lossPresentation } from '../link'
 import type { FrameRecord, LinkStats } from '../../types/telemetry'
 import type { TelemetryFrame } from '../../types/telemetry'
 
@@ -283,5 +283,45 @@ describe('packet loss presentation', () => {
     const loss = lossPresentation(stats())
     expect(loss.available).toBe(true)
     expect(loss.value).toBe('0.0%')
+  })
+})
+
+describe('the chute never claims a canopy opened (S8)', () => {
+  // Untested until 2026-08-29, which is most of why it stayed wrong for so long.
+
+  it('reads 0 as armed', () => {
+    expect(chutePresentation(0)).toMatchObject({ label: 'Armed', tone: 'ok' })
+  })
+
+  it('shows the count, not a matched value', () => {
+    expect(chutePresentation(1).label).toBe('Commanded ×1')
+    expect(chutePresentation(2).label).toBe('Commanded ×2')
+    expect(chutePresentation(7).label).toBe('Commanded ×7')
+  })
+
+  it('does not fall through to Unknown above 1', () => {
+    // The regression this replaces. `chute === 2` is reachable in normal use — an eject
+    // burst spans more than one vehicle cycle, and RESET:CHUTE then EJECT is a supported
+    // bench workflow — and it rendered as "Unknown" on a vehicle whose chute had fired,
+    // with the Eject controls returning alongside it.
+    expect(chutePresentation(2).tone).toBe('alert')
+    expect(chutePresentation(2).label).not.toBe('Unknown')
+  })
+
+  it('treats absent as unknown, never as safe', () => {
+    expect(chutePresentation(null)).toMatchObject({ label: 'Unknown', tone: 'unknown' })
+    expect(chutePresentation(undefined).label).toBe('Unknown')
+  })
+
+  it('treats a negative count as corruption, not as a release', () => {
+    expect(chutePresentation(-1).label).toBe('Unknown')
+  })
+
+  it('never says the word', () => {
+    // No feedback sensor exists anywhere in this system, so "deployed" is a claim the
+    // hardware cannot support. Guarded rather than trusted.
+    for (const value of [null, undefined, 0, 1, 2, 99]) {
+      expect(chutePresentation(value).label.toLowerCase()).not.toContain('deploy')
+    }
   })
 })
