@@ -78,7 +78,7 @@
  * sensor, so the chute counter means "commanded", never "deployed".
  */
 #define CHUTE_USE_SERVO         1
-#define CHUTE_PIN               D3
+#define CHUTE_PIN               3
 #define CHUTE_SERVO_ARMED_DEG   90
 #define CHUTE_SERVO_RELEASE_DEG 160
 #define CHUTE_HOLD_MS           1000   /* servo only: time to reach position */

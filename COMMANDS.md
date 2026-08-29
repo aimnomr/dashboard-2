@@ -6,8 +6,23 @@ Every command this system is run by, with what it does and what it will not do.
 the order to do things in on a launch day, and what to STOP on. This file answers the
 narrower question: *what do I type.*
 
+**Nor is it a cheatsheet.** [`COMMANDS-QUICK.md`](COMMANDS-QUICK.md) is that — the same
+commands with every explanation stripped out, for someone who has already read this once
+and wants to copy a line rather than retype it. Read this file first: several commands
+here do not do what their name suggests, and the quick sheet does not stop to say so.
+
 Backend commands are run from `backend/`, frontend commands from `frontend/`, and the two
 firmware commands from the repo root. Each section says which.
+
+**Every Python entry point here takes `--help`**, and its output is generated from the
+code rather than copied into this file. When the two disagree, `--help` is right.
+
+```bash
+python -m dashboard --help
+python -m devtools.run_mock --help
+python -m devtools.run_replay --help
+python -m devtools.send_command --help
+```
 
 ---
 
@@ -38,6 +53,18 @@ pip install -r requirements.txt
 
 `requirements.txt` is launch-only: `fastapi`, `uvicorn`, `pyserial`. Nothing else is
 needed to fly.
+
+**Activate the venv in every new terminal**, not just the one you created it in. This is
+the first thing that goes wrong and it does not look like what it is — a bare `python`
+finds the system interpreter, which has none of these installed, and the failure is
+`ModuleNotFoundError: No module named 'uvicorn'` rather than anything mentioning the
+environment. It applies to every backend command in sections 1 to 4 and 6, and to the
+second terminal in section 4 as much as the first.
+
+```bash
+cd backend
+.venv\Scripts\activate                 # Windows.  source .venv/bin/activate elsewhere
+```
 
 ```bash
 pip install -r requirements-dev.txt    # adds pytest, httpx, pandas
@@ -174,8 +201,12 @@ Run from `backend/`, **in a second terminal, while the dashboard is already runn
 
 ```bash
 python -m devtools.send_command PING
+python -m devtools.send_command EJECT
 python -m devtools.send_command SET:DROP:15.0
+python -m devtools.send_command SET:ARM:50.0
 python -m devtools.send_command SET:CYCLES:2
+python -m devtools.send_command SET:AUTO:0
+python -m devtools.send_command RESET
 python -m devtools.send_command RESET:CHUTE
 ```
 
@@ -183,12 +214,12 @@ python -m devtools.send_command RESET:CHUTE
 |---|---|---|
 | `PING` | uplink proof. Increments `ul` on the vehicle | — |
 | `EJECT` | command a chute release | — |
-| `RESET` | re-base the auto-eject trigger | — |
-| `RESET:CHUTE` | clear the chute counter | — |
+| `RESET` | re-base the auto-eject trigger. **Not a cancel** — `SET:AUTO:0` is | — |
+| `RESET:CHUTE` | the above, **plus clear the fire latch** — makes a fired chute fireable again | — |
 | `SET:DROP:<m>` | metres below peak before firing | 2.0 – 100.0 |
 | `SET:ARM:<m>` | altitude above boot before the trigger arms | 5.0 – 200.0 |
 | `SET:CYCLES:<n>` | consecutive confirming cycles | 1 – 10 |
-| `SET:AUTO:<0|1>` | enable/disable auto-eject | 0 or 1 |
+| `SET:AUTO:<0\|1>` | enable/disable auto-eject | 0 or 1 |
 
 | Flag | Effect |
 |---|---|
@@ -214,6 +245,15 @@ python -m devtools.send_command RESET:CHUTE
   attempt(s)` without sending. True about the chute; not evidence the uplink works.
 - **`SET` and `RESET` need GEN4 on both units.** A GEN3 vehicle ignores them and never
   moves `ul`, so a GEN4 ground station reports failure loudly rather than pretending.
+- **Neither RESET clears the `chute` counter.** That counter is the ground station's
+  confirmation signal for the eject burst, and zeroing it would make an already-fired
+  chute look armed to the operator. `RESET` clears trigger state; `RESET:CHUTE` clears
+  trigger state and the fire latch. Both leave `chute` where it is.
+- **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
+  BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
+  cycle against a fresh apogee and fires again once it has dropped `DROP` from there.
+  Traced: `RESET` at 150 m re-armed at 140 m and fired at 120 m. `SET:AUTO:0` is the
+  cancel.
 - Validation lives in `dashboard.api.translate_command`, not in this script. The bounds
   above are duplicated in three places — `api.py`, the GEN4 ground station, the GEN4
   vehicle — and must be changed together.
@@ -245,13 +285,22 @@ npm run test         # vitest run
 ## 6 · Tests
 
 ```bash
-cd backend  && python -m pytest tests -q          # 141
-cd frontend && npm run test                       # 73
+cd backend  && python -m pytest tests -q          # 145
+cd frontend && npm run test                       # 94
 cd frontend && npm run typecheck
 python firmware/tests/verify_gen3.py              # from the repo root — 14 checks
 ```
 
-**214 tests: 141 backend, 73 frontend**, plus the firmware verifier.
+**239 tests: 145 backend, 94 frontend**, plus the firmware verifier.
+
+Narrowing the run, while working on one thing:
+
+```bash
+python -m pytest tests/test_parser_gen3.py -q     # one file
+python -m pytest tests -q -k contract             # one subject, by name
+python -m pytest tests -q -x                      # stop at the first failure
+npm run test -- packet                            # frontend, one file by name
+```
 
 `verify_gen3.py` is the reference implementation of the GEN3 packet checksum, and a
 transliteration of the C in `firmware/MRC_GroundStation_GEN3/Radio.ino`. Three separate
@@ -308,6 +357,7 @@ works with no reconfiguration. Full detail in `firmware/tools/README.md`.
 
 | Sketch | Use |
 |---|---|
+| `ServoEjectTest` | **bench the release servo**, thrown by a button instead of a radio. Run before trusting a deployment. Its pin and angles must agree with `CHUTE_*` in both `Config.h` files |
 | `GPS_Relay_Flight` + `GPS_Relay_Ground` | **the GPS test you actually want.** One per unit; CanSat outside under sky, ground unit on USB at 115200 |
 | `UART_PinTest` | run when the relay reports `chars=0`. Jumper pin 19 to pin 20 with the GPS disconnected |
 | `GPS_Passthrough` | desk test only — is the module alive at all |
@@ -316,6 +366,19 @@ works with no reconfiguration. Full detail in `firmware/tools/README.md`.
 The `inview` vs `used` split in the relay output is the useful part: satellites in view
 prove the antenna and sky are fine even with no fix yet, which is exactly the distinction
 the flight firmware's `sat` field cannot make.
+
+**Reading the dashboard without the dashboard.** Two HTTP endpoints, useful when the UI
+is not the thing you are testing:
+
+```bash
+curl http://127.0.0.1:8000/api/session      # source, simulated flag, packet contract
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/    # 200, or 503 = no dist/
+```
+
+`/api/session` returns the same message every WebSocket client gets first, including the
+generated field table — 22 entries with wire index, unit, precision and sentinels. It is
+the fastest way to confirm the backend is up, whether it is on real or simulated data, and
+what contract version it is serving, without opening a browser.
 
 ---
 

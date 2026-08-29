@@ -59,3 +59,4 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-27 · 054 · Every command in one file
 - 2026-08-27 · 055 · The release mechanism is a servo, and both generations now say so
 - 2026-08-29 · 056 · The packet is readable as numbers, and the field table comes from the backend
+- 2026-08-29 · 057 · `CHUTE_PIN` reconciled, and the command reference audited against the code

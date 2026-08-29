@@ -37,7 +37,9 @@ Mock telemetry lives in a separate package with its own entry point so it cannot
 reached by accident at the pad. See `backend/devtools/README.md`.
 
 Every command this system is run by — replay, mock, uplink, tests, diagnostics — with
-its flags and its caveats: **[`COMMANDS.md`](COMMANDS.md)**.
+its flags and its caveats: **[`COMMANDS.md`](COMMANDS.md)**. Once that has been read
+once, **[`COMMANDS-QUICK.md`](COMMANDS-QUICK.md)** is the same set with the prose removed,
+to copy from.
 
 ## Layout
 
@@ -52,6 +54,7 @@ wiki/                project knowledge base
 devlog/              append-only record of executed changes
 status.md            current state — read at session start
 COMMANDS.md          every command, with flags and caveats
+COMMANDS-QUICK.md    the same commands, no prose — for copying
 ```
 
 ## Where to start reading
