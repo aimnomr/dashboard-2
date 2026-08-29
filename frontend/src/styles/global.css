@@ -319,3 +319,132 @@ body {
 
 .channel__chart { flex: 1; min-height: 0; display: flex; }
 .u-legend { display: none; }
+
+/* ---- packet readout -------------------------------------------------------- */
+
+/* The live packet as numbers, above the charts in the channels view. Monospaced and
+   tabular throughout: this table is meant to be read against a line in the raw feed,
+   and columns that shift as digits change defeat both jobs it has. */
+
+.packet {
+  background: var(--panel-bg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--pad);
+}
+
+.packet--unavailable {
+  color: var(--text-faint);
+  font-size: var(--size-label);
+}
+
+.packet--unavailable p { margin: 0; }
+
+.packet__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin-bottom: 0.5rem;
+}
+
+.packet__title {
+  font-size: var(--size-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.packet__meta { font-size: var(--size-label); color: var(--text-faint); }
+
+.packet__notice {
+  font-size: var(--size-label);
+  color: var(--warn);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.packet__columns {
+  display: grid;
+  gap: 0 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+}
+
+.packet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--size-label);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.packet__table th,
+.packet__table td {
+  padding: 0.1875rem 0.375rem;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--grid);
+}
+
+.packet__table thead th {
+  color: var(--text-faint);
+  font-weight: 700;
+  border-bottom: 1px solid var(--rule);
+}
+
+.packet__table tbody th {
+  font-weight: 700;
+  color: var(--text);
+  /* Helps nothing visually; the cursor is the affordance for the contract in `title`. */
+  cursor: help;
+}
+
+.packet__i {
+  color: var(--text-faint);
+  text-align: right !important;
+  width: 2rem;
+}
+
+/* The two numeric columns get the width, since they are what the eye lands on. */
+.packet__value {
+  text-align: right !important;
+  font-weight: 700;
+  width: 6.5rem;
+}
+
+.packet__unit { color: var(--text-faint); width: 3.5rem; }
+
+.packet__delta {
+  text-align: right !important;
+  color: var(--text-dim);
+  width: 5.5rem;
+}
+
+.packet__flags { width: 100%; white-space: normal !important; }
+
+/* A field this generation does not carry. Dimmed rather than hidden: its absence is
+   itself information, and a row that vanishes cannot be counted against a raw line. */
+.packet__table tr.is-absent th,
+.packet__table tr.is-absent td { color: var(--text-faint); font-weight: 400; }
+
+.packet__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.5rem;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+/* Deliberately not a status colour. A flat channel is often correct — `chute` holding
+   0 is the system working — so this marks the fact without asserting a fault. */
+.packet__tag--note { color: var(--text-faint); font-weight: 400; }
+
+.packet__footnote {
+  font-size: var(--size-label);
+  color: var(--text-faint);
+  margin: 0.5rem 0 0;
+}

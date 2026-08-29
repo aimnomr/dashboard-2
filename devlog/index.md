@@ -56,3 +56,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-20 · 051 · The uplink works, and there is a log of it
 - 2026-08-26 · 052 · Auto-eject on descent, and `ul` decoupled from `chute`
 - 2026-08-26 · 053 · GEN4 — the auto-eject trigger is configurable from the ground
+- 2026-08-27 · 054 · Every command in one file
+- 2026-08-27 · 055 · The release mechanism is a servo, and both generations now say so
+- 2026-08-29 · 056 · The packet is readable as numbers, and the field table comes from the backend

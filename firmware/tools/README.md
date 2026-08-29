@@ -6,6 +6,33 @@ reflashing the real firmware would.
 Radio settings match the GEN3 firmware exactly, so the relay pair works with no
 reconfiguration.
 
+## ServoEjectTest — bench the release mechanism
+
+Throws the release servo from a button instead of a radio, so the mechanism can be
+tested without flashing flight firmware or standing up a ground station.
+
+**Runs on the bench board, not the flight unit.** `buttonPin = 25` could not exist on
+the Heltec V3: the ESP32-S3 has no GPIO 22-25, its map runs 0-21 then 26-48. The pin
+numbers in this sketch are for a classic ESP32 and must not be copied into `Config.h`.
+
+The angles are the measured ones and are the same pair compiled into both flight
+generations:
+
+| | Bench | `Config.h` (GEN3 and GEN4) |
+|---|---|---|
+| Armed | `ARMED_DEG 90` | `CHUTE_SERVO_ARMED_DEG 90` |
+| Release | `RELEASE_DEG 160` | `CHUTE_SERVO_RELEASE_DEG 160` |
+| Travel time | `HOLD_MS 1000` | `CHUTE_HOLD_MS 1000` |
+
+**Retune in all three places or the bench stops predicting the vehicle.** This is the
+same three-copy problem as the auto-eject bounds, and it fails the same silent way.
+
+The bench returns to armed after the throw; **flight never does.** `chuteFire()` is a
+one-shot latch, and only `RESET:CHUTE` over the GEN4 uplink clears it.
+
+⚠ Reaching `RELEASE_DEG` proves the horn moved. It does not prove the parachute opened,
+here or in flight — there is no feedback sensor anywhere in this system.
+
 ## GPS_Relay_Flight + GPS_Relay_Ground — use this pair
 
 **The GPS test you actually want.** Flash one to each unit. The CanSat goes outside under

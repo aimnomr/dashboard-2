@@ -220,3 +220,59 @@ def test_status_lines_never_consume_replay_cadence():
     packet = f"${body}*{crc16_ccitt(body.encode()):04X}"
     delay, _ = src._delay_before(packet, previous_ms=5000)
     assert delay == 1.0
+
+
+# --------------------------------------------------- the same table, over the wire
+
+# The Channels packet readout formats and labels the live packet from the field table
+# delivered in the session message. It is the same `field_table()` the sidecar is built
+# from, and these pin that it stays the same one — a frontend holding its own copy is
+# the drift the sidecar exists to prevent, moved one layer out.
+
+
+def test_field_table_is_exactly_what_the_sidecar_carries(meta: dict):
+    from dashboard.contract import field_table
+
+    assert field_table() == meta["fields"]
+
+
+def test_the_session_message_carries_the_field_table():
+    from types import SimpleNamespace
+
+    from dashboard.api import _session_message
+
+    message = _session_message(
+        SimpleNamespace(name="serial", simulated=False),
+        SimpleNamespace(rx_index=7),
+    )
+
+    assert message["contract"] == CONTRACT_VERSION
+    assert [f["name"] for f in message["fields"]] == list(ALL_FIELDS)
+    # 1-based and contiguous, so a reader can count across a raw line to find field 14.
+    assert [f["i"] for f in message["fields"]] == list(range(1, len(ALL_FIELDS) + 1))
+
+
+def test_every_field_the_readout_renders_has_a_precision_and_a_label():
+    """The readout formats from `fmt` and labels from `unit`/`desc`.
+
+    A field arriving without `fmt` would be rendered at whatever precision JavaScript
+    felt like, which for a latitude is the difference between 1 m and 100 km.
+    """
+    from dashboard.contract import field_table
+
+    for entry in field_table():
+        assert entry["fmt"], f"{entry['name']} has no format"
+        assert entry["desc"], f"{entry['name']} has no description"
+        assert entry["type"] in ("int", "float")
+
+
+def test_the_link_fields_are_flagged_as_outside_the_checksum():
+    from types import SimpleNamespace
+
+    from dashboard.api import _session_message
+
+    message = _session_message(
+        SimpleNamespace(name="mock", simulated=True),
+        SimpleNamespace(rx_index=0),
+    )
+    assert message["outside_checksum"] == list(GEN3_LINK_FIELDS)

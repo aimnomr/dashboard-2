@@ -58,6 +58,21 @@ def _field_entry(index: int, name: str) -> dict:
     return entry
 
 
+def field_table() -> list[dict]:
+    """The field table alone — wire order, one entry per field, 1-based indices.
+
+    Split out of `contract()` because the live dashboard needs the same table the sidecar
+    carries. The Channels packet readout labels every field, formats it to its own
+    precision and annotates its sentinels straight from this; it holds no copy of its own.
+
+    That is the same argument the sidecar is built on, applied one layer further out. The
+    frontend already refuses to parse, on the grounds that a second parser is free to
+    drift from the real one — a hand-written field table would be that failure with a
+    shorter fuse, because it would drift silently and still look authoritative.
+    """
+    return [_field_entry(i, name) for i, name in enumerate(_ORDER, start=1)]
+
+
 def contract(source_name: str, started_at: datetime | None = None) -> dict:
     """The sidecar as a dict. Serialise with `dumps()` to get the compact layout."""
     started = started_at or datetime.now(timezone.utc)
@@ -93,7 +108,7 @@ def contract(source_name: str, started_at: datetime | None = None) -> dict:
             },
             "outside_checksum": list(GEN3_LINK_FIELDS),
         },
-        "fields": [_field_entry(i, name) for i, name in enumerate(_ORDER, start=1)],
+        "fields": field_table(),
     }
 
 

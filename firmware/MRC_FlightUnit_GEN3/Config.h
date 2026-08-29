@@ -59,10 +59,10 @@
  * NOTE: neither path can confirm the parachute opened. There is no feedback
  * sensor, so the chute counter means "commanded", never "deployed".
  */
-#define CHUTE_USE_SERVO         0
-#define CHUTE_PIN               47
-#define CHUTE_SERVO_ARMED_DEG   0
-#define CHUTE_SERVO_RELEASE_DEG 90
+#define CHUTE_USE_SERVO         1
+#define CHUTE_PIN               3
+#define CHUTE_SERVO_ARMED_DEG   90
+#define CHUTE_SERVO_RELEASE_DEG 160
 #define CHUTE_HOLD_MS           1000   /* servo only: time to reach position */
 
 /* ---- AUTO-EJECT ----------------------------------------------------------

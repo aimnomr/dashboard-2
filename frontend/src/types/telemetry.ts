@@ -103,6 +103,36 @@ export interface LinkStats {
   last_seq: number
 }
 
+/**
+ * One field of the packet, exactly as the backend describes it.
+ *
+ * Generated from `parser.FIELD_DOC` and delivered in the session message — the same
+ * table written into every log's `.meta.json` sidecar.
+ *
+ * Deliberately NOT written out here. This file's header forbids a second parser on the
+ * grounds that it is free to drift from the real one; a hand-written field table is the
+ * same failure with a shorter fuse, because it would drift silently on the next format
+ * change and still look authoritative.
+ */
+export interface PacketField {
+  /** 1-based position on the wire, so a reader can count across a raw line to find it. */
+  i: number
+  name: string
+  type: 'int' | 'float'
+  /** Null where the number is dimensionless — `hdop`, `fixq`, `seq`. */
+  unit: string | null
+  /**
+   * The firmware's own printf spec, e.g. `%.5f`. This is the field's real precision and
+   * the only honest one to render at: five decimals on a latitude is ~1 m, three is
+   * ~100 m, and picking a house default would quietly change what the number claims.
+   */
+  fmt: string
+  desc: string
+  /** A value meaning "no data" rather than a measurement. Annotated, never substituted. */
+  sentinel?: { value: number; means: string }
+  note?: string
+}
+
 export interface SessionMessage {
   type: 'session'
   source: string
@@ -110,6 +140,20 @@ export interface SessionMessage {
   simulated: boolean
   rx_index: number
   server_time: string
+  /** Wire format version, e.g. "GEN3.1". Absent on a backend older than 2026-08-29. */
+  contract?: string
+  /**
+   * The packet contract in wire order.
+   *
+   * Optional because a backend that predates it sends no table, and the readout must
+   * then say so rather than invent one — the same rule every null on this page follows.
+   */
+  fields?: PacketField[]
+  /**
+   * Fields the ground station appends AFTER the checksum — `rssi`, `snr`. Not the
+   * vehicle's word, and not covered by the CRC that vouches for the rest of the line.
+   */
+  outside_checksum?: string[]
 }
 
 export interface FrameMessage {

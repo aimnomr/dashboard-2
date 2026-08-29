@@ -10,7 +10,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .contract import CONTRACT_VERSION, field_table
 from .hub import Hub
+from .parser import GEN3_LINK_FIELDS
 from .pipeline import Pipeline
 from .sources.base import TelemetrySource
 
@@ -157,6 +159,22 @@ def _session_message(source: TelemetrySource, pipeline: Pipeline) -> dict:
         "simulated": source.simulated,
         "rx_index": pipeline.rx_index,
         "server_time": datetime.now(timezone.utc).isoformat(),
+        # ---- the packet contract -------------------------------------------------
+        #
+        # The same table written into every log's `.meta.json`, generated from
+        # `parser.FIELD_DOC`. The Channels view renders a numeric readout of the live
+        # packet from it: wire index, label, unit, the field's own precision, and which
+        # values are sentinels rather than measurements.
+        #
+        # Sent rather than hard-coded in the frontend for the reason `types/telemetry.ts`
+        # already gives about parsing — a second description of the wire format drifts
+        # from the real one and is believed anyway. Sent once per connection, ~3 KB.
+        "contract": CONTRACT_VERSION,
+        "fields": field_table(),
+        # Mirrors `packet.outside_checksum` in the sidecar. These are appended by the
+        # GROUND station after the CRC, so they are not the vehicle's word and are not
+        # covered by the checksum that vouches for everything else on the line.
+        "outside_checksum": list(GEN3_LINK_FIELDS),
     }
 
 

@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
+import { PacketReadout } from '../components/PacketReadout'
 import { TimeSeriesChart, type ChartSeries } from '../components/TimeSeriesChart'
 import { computeAttitude } from '../lib/attitude'
 import { verticalRateSeries } from '../lib/rates'
 import { applyBreaks, timebase } from '../lib/timebase'
-import type { FrameRecord } from '../types/telemetry'
+import type { FrameRecord, SessionMessage } from '../types/telemetry'
 
 interface ChannelsViewProps {
   history: FrameRecord[]
+  /** Carries the packet contract the numeric readout labels and formats from. */
+  session: SessionMessage | null
 }
 
 interface Channel {
@@ -26,8 +29,13 @@ interface Channel {
  * burying those among fifteen diagnostic traces would cost the thing it is for. This is
  * the other job — reading a flight afterwards, or checking a replay parses correctly —
  * and it wants breadth instead.
+ *
+ * The numeric readout sits above the charts because it answers the faster question. A
+ * trace shows what a channel has been doing; reading its CURRENT value off it is
+ * guesswork, and a channel that has frozen draws the same flat line as one that is
+ * genuinely steady.
  */
-export function ChannelsView({ history }: ChannelsViewProps) {
+export function ChannelsView({ history, session }: ChannelsViewProps) {
   const { x, channels, clock } = useMemo(() => {
     const base = timebase(history)
     const breaks = base.restarts
@@ -174,6 +182,7 @@ export function ChannelsView({ history }: ChannelsViewProps) {
       <div className="channels__meta">
         {history.length} samples · x axis: {clock}
       </div>
+      <PacketReadout history={history} session={session} />
       <div className="channels__grid">
         {channels.map((channel) => (
           <section className="channel" key={channel.title}>

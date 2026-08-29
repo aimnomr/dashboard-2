@@ -29,7 +29,7 @@ export default function App() {
 
       {view === 'channels' ? (
         <main className="view-scroll">
-          <ChannelsView history={telemetry.history} />
+          <ChannelsView history={telemetry.history} session={telemetry.session} />
         </main>
       ) : (
         <main className="grid">
