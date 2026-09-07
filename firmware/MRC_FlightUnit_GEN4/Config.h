@@ -21,7 +21,7 @@
 #define BANDWIDTH_KHZ     125.0
 #define SPREADING         7
 #define CODING_RATE       5
-#define SYNC_WORD         0xAB
+#define SYNC_WORD         0xAA
 #define TX_POWER_DBM      17
 
 #define TEAM_ID           "MRC"
