@@ -31,7 +31,16 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
   const ul = latest?.frame.ul ?? null
   /* Releases COMMANDED, from either path — an uplink EJECT or the vehicle's own
      auto-eject. Never "deployed": no canopy sensor exists anywhere in this system, so
-     that word is a claim nothing here can support (rule S8). */
+     that word is a claim nothing here can support (rule S8).
+
+     ⚠ This also gates the controls: once it is true the Arm and Eject buttons are
+     replaced by the banner, permanently, because `chute` is monotonic and only a vehicle
+     reboot returns it to 0. That was defensible while a second release required
+     RESET:CHUTE — a command this panel does not offer — but 061 makes repeat releases a
+     normal operation the firmware now supports and this panel still cannot reach. The
+     CLI (`send_command EJECT`) is the only path to a second release from the ground.
+     Restoring a parachute control after a release is a UI decision with its own safety
+     shape and has NOT been taken here. */
   const commanded = chute !== null && chute > 0
 
   useEffect(() => {
@@ -58,7 +67,12 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
   /* Relative to the press, not absolute. On a re-armed unit `chute` is already 1 when
      Eject is pressed again, and an absolute test would report the new command confirmed
      before it had been sent. Null baseline (firmware with no chute field) never rises,
-     which is the honest answer for a vehicle that cannot report this at all. */
+     which is the honest answer for a vehicle that cannot report this at all.
+
+     Since 061 a vehicle re-arms itself after CHUTE_REARM_MS, so repeat releases are
+     ordinary rather than a reset-only bench workflow — which makes the relative test
+     load-bearing rather than defensive. See the note by `commanded` below: this panel
+     still has no way to SEND that second command. */
   const roseSinceSend =
     sentAt !== null && chute !== null && chuteAtSend !== null && chute > chuteAtSend
   const awaitingConfirmation = sentAt !== null && !roseSinceSend

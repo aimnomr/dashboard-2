@@ -10,7 +10,12 @@
  *  and they fail in opposite directions:
  *
  *      trigger state  (here)        apogee, armed, cycle count, autoEjectFired
- *      fire latch     (Chute.ino)   chuteFired
+ *      fire latch     (Chute.ino)   chuteEverFired
+ *
+ *  Since 061 Chute.ino also carries a SHORT-lived drive latch that expires on its own
+ *  (chuteFired, CHUTE_REARM_MS). That one is invisible here on purpose: chuteIsFired()
+ *  reports the sticky flag, so nothing in this file has to know the mechanism can now
+ *  re-arm itself, and the guard below still means what it has always meant.
  *
  *  Clearing trigger state cannot drive the mechanism — at worst it moves WHERE the
  *  rule will fire. Clearing the fire latch does something categorically different:
@@ -38,13 +43,21 @@
  *                   without losing the trigger — but it is not a cancel.
  *                   SET:AUTO:0 is the cancel.
  *
- *      RESET:CHUTE  the above, plus the fire latch. The ONLY way to re-run a
+ *      RESET:CHUTE  the above, plus the fire latch. The IMMEDIATE way to re-run a
  *                   deployment test on a sealed unit without opening it, which is
  *                   what it exists for. In flight it re-arms a fired chute.
  *
+ *                   No longer the ONLY way to drive the mechanism twice — since 061
+ *                   the drive latch expires by itself and a second EJECT is enough.
+ *                   It IS still the only way to clear chuteEverFired, so it remains
+ *                   the only way to make the auto-eject rule eligible again after a
+ *                   commanded release. That is the dangerous half, and it still has
+ *                   its own token.
+ *
  *  Note that plain RESET after something has fired does nothing useful: the rule
- *  re-arms and re-decides, then chuteFire() returns immediately because the latch
- *  is still set. That is the intended shape, not an oversight.
+ *  re-arms and re-decides, and then apogeeUpdate() refuses on chuteIsFired() before
+ *  it ever reaches chuteFire(). That is the intended shape, not an oversight — and
+ *  it is why the sticky flag had to stay sticky when the drive latch stopped being.
  *
  *  The rule itself:
  *

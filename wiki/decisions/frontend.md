@@ -57,7 +57,7 @@ All nine are in scope for the first version.
 |---|---|---|
 | Link health | `rssi`, `snr`, arrival time | See the hard constraint below |
 | Altitude | `alt` | Primary chart. Current value large, plus max reached |
-| Chute state | `chute` | ARMED / COMMANDED ×N / UNKNOWN, high prominence. **Never "DEPLOYED"** (rule S8) — *decided, not yet implemented: `lib/link.ts` still renders "Deployed"* |
+| Chute state | `chute` | ARMED / COMMANDED ×N / UNKNOWN, high prominence. **Never "DEPLOYED"** (rule S8) — implemented 2026-08-29, devlog 059 |
 | EJECT control | uplink | Armed state required — see below |
 | Ground track | `lat`, `lng` | Plain XY trace, launch point marked, scale bar. No basemap (`ISS-11`) |
 | GPS readout | `lat`, `lng`, `sat` | Numeric; satellite count doubles as a fix-quality indicator |
@@ -158,9 +158,19 @@ as a *number*, deliberately not as a rendered orientation.
 It fires a parachute. Requirements:
 
 - An explicit **armed state** or confirmation step. A stray click must not deploy.
-- **Sent ≠ deployed.** The link carries no acknowledgement. The UI shows that the command was
-  transmitted; actual deployment is confirmed only indirectly, by `CHUTE:1` appearing in later
-  telemetry. Showing "deployed" on button press would be a lie the operator may act on.
+- **Sent ≠ driven, and driven ≠ deployed.** The link carries no acknowledgement. The UI shows
+  that the command was transmitted; the only return signal is `chute` **rising above what it
+  read when the button was pressed** — not an absolute `CHUTE:1`, which reports the previous
+  release on a vehicle that has already fired once. Even that rise means the mechanism was
+  driven, never that a canopy opened: no sensor in this system can report deployment. Showing
+  "deployed" on button press would be a lie the operator may act on.
+- **Repeat releases are now a supported operation (devlog 061)** and the panel does not
+  implement them. The vehicle returns its mechanism to ARMED and clears its drive latch after
+  `CHUTE_REARM_MS`, and the ground station accepts a second `EJECT` after `EJECT_REARM_MS`, but
+  `EjectPanel` replaces the Arm and Eject controls with a banner as soon as `chute > 0` and
+  never restores them — `chute` is monotonic. The CLI is the only route to a second release.
+  **Open decision**, not an oversight: restoring a parachute control after a release needs its
+  own arming shape, and it has not been designed.
 - `ISS-02` — the ground unit firmware that receives this command does not exist yet, so the path
   cannot be tested end to end against hardware. It can be exercised against the mock server.
 

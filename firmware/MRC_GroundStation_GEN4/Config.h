@@ -67,6 +67,19 @@
 #define EJECT_ATTEMPTS     5
 #define EJECT_RETRY_MS   300
 
+/* How long after a confirmed release a further EJECT is refused from the console.
+ *
+ * ⚠ MIRRORS CHUTE_REARM_MS in MRC_FlightUnit_GEN4/Config.h. Change both together.
+ * The vehicle's value is the one that matters — it decides when the mechanism can
+ * actually be driven again. This one only decides when the console stops saying no,
+ * so setting it SHORTER than the vehicle's is the dangerous direction: the burst
+ * goes out, `chute` rises, the operator is told a release was confirmed, and the
+ * vehicle's latch was still set. Equal, or longer.
+ *
+ * This is the cooldown path. RESET:CHUTE remains the immediate one, and remains the
+ * only way to re-arm a vehicle that has NOT re-armed itself — CHUTE_AUTO_REARM 0. */
+#define EJECT_REARM_MS  3000
+
 /* PING proves the uplink works WITHOUT firing the parachute.
  *
  * This ground station still cannot tell whether the vehicle heard it — there is
@@ -98,7 +111,14 @@
  *
  * ⚠ RESET:CHUTE makes an already-fired chute fireable again. It exists for bench
  * testing a sealed unit. There is no confirmation prompt — the separate token IS
- * the safeguard. */
+ * the safeguard.
+ *
+ * Since 061 it is no longer the only route to a second release — the vehicle re-arms
+ * its own drive latch after CHUTE_REARM_MS and a plain EJECT will work once
+ * EJECT_REARM_MS has passed here. RESET:CHUTE stays for the two things the cooldown
+ * cannot do: re-arm immediately, and re-arm a vehicle built with CHUTE_AUTO_REARM 0.
+ * It is also still the only command that lets the vehicle's auto-eject rule fire
+ * after a commanded release, which is the part that is dangerous in the air. */
 #define CMD_SET_PREFIX      "CMD:SET:"
 #define SET_PREFIX          "SET:"
 #define CMD_RESET           "CMD:RESET"

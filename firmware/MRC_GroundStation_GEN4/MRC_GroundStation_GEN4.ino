@@ -56,6 +56,12 @@ uint32_t lastPacketMs   = 0;   /* 0 = nothing received yet */
 bool     ejectConfirmed = false;
 uint8_t  ejectAttempts  = 0;
 
+/* millis() at the moment ejectConfirmed was last set, so the console guard can tell
+ * "the vehicle is still re-arming" from "the vehicle re-armed a while ago and a
+ * second release is a deliberate request". Meaningless while ejectConfirmed is
+ * false; never read in that state. See EJECT_REARM_MS in Config.h. */
+uint32_t ejectConfirmedMs = 0;
+
 /* The value of `chute` above which a release counts as a NEW one.
  *
  * 0 from boot, so `lastChute > chuteBaseline` is identical to the old

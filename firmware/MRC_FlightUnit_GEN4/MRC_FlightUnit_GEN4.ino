@@ -12,6 +12,11 @@
  *      RESET           trigger state only
  *      RESET:CHUTE     trigger state + the fire latch, for sealed bench testing
  *
+ *  061 also made the RELEASE MECHANISM repeatable: it returns to ARMED on a timer
+ *  and its drive latch expires, so a second EJECT drives it again without a reset.
+ *  Still no new packet fields — `chute` counts eject packets received exactly as it
+ *  did, and cannot tell you how many times the mechanism actually moved.
+ *
  *  Because only the uplink grammar changed, a mismatched pair degrades safely in
  *  both directions: a GEN3 vehicle ignores SET as foreign traffic and never moves
  *  `ul`, so a GEN4 ground station's burst reports failure loudly rather than
@@ -150,6 +155,11 @@ void setup() {
 void loop() {
   nextCycleAt += CYCLE_PERIOD_MS;
 
+  /* The release mechanism's return sweep and its re-arm are both deadlines, not
+   * delays. Serviced here and in both hold loops so they are met to within a poll
+   * tick even on a cycle that overran. */
+  chuteTick();
+
   /* ---- 1. LISTEN ---------------------------------------------------------
    * GPS is fed on every tick inside the window. At 9600 baud the UART FIFO
    * fills in about 130 ms, so leaving it unread for a 400 ms window would drop
@@ -268,6 +278,7 @@ void loop() {
 void holdUntil(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
+    chuteTick();
     delay(1);
   }
 }
@@ -282,6 +293,7 @@ void holdUntil(uint32_t deadlineMs) {
 void holdUntilListening(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
+    chuteTick();
 
     if (ENABLE_UPLINK && radioServiceUplink()) {
       chuteCommands++;

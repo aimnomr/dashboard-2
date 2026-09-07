@@ -85,8 +85,33 @@ void handleCommand(const char *line) {
 
   if (strcmp(line, CMD_EJECT) == 0) {
     if (ejectConfirmed) {
-      Serial.println("[GCS] EJECT already confirmed, ignoring");
-      return;
+      /* Two different situations wear the same flag.
+       *
+       * Inside the cooldown the vehicle's mechanism is still travelling back and its
+       * drive latch is still set, so a burst sent now would be received, counted into
+       * `chute`, and drive nothing — a release the operator is shown and that never
+       * happened. That is the failure 058 was written to prevent, and it stays
+       * blocked.
+       *
+       * Past the cooldown the vehicle has re-armed itself (CHUTE_REARM_MS), so a
+       * second EJECT is an ordinary request and is allowed. The ground re-arms the
+       * same way RESET:CHUTE does — by moving the baseline, never by zeroing the
+       * vehicle's counter.
+       *
+       * ⚠ Re-capturing chuteBaseline is not optional. `lastChute` is already above
+       * the old baseline from the previous release, so leaving it alone would make
+       * fireEjectBurst() confirm on its first test and transmit nothing at all. */
+      if ((uint32_t)(millis() - ejectConfirmedMs) < EJECT_REARM_MS) {
+        Serial.println("[GCS] EJECT already confirmed, ignoring - vehicle still re-arming");
+        Serial.println("[GCS] wait for the cooldown, or send RESET:CHUTE to re-arm now");
+        return;
+      }
+
+      ejectConfirmed = false;
+      chuteBaseline  = (lastChute >= 0) ? lastChute : 0;
+      Serial.print("[GCS] EJECT re-armed after cooldown, chute baseline ");
+      Serial.println(chuteBaseline);
+      Serial.println("[GCS] the next release must exceed that to confirm");
     }
     Serial.println("[GCS] EJECT armed");
     fireEjectBurst();
@@ -320,7 +345,8 @@ void fireEjectBurst() {
      * servo. It does NOT mean the parachute opened — there is no feedback
      * sensor. Nothing downstream may claim otherwise. */
     if (lastChute > chuteBaseline) {
-      ejectConfirmed = true;
+      ejectConfirmed   = true;
+      ejectConfirmedMs = millis();
       Serial.print("[GCS] EJECT confirmed after ");
       Serial.print(i);
       Serial.println(" attempt(s)");

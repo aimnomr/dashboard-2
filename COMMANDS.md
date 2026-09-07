@@ -215,7 +215,7 @@ python -m devtools.send_command RESET:CHUTE
 | `PING` | uplink proof. Increments `ul` on the vehicle | — |
 | `EJECT` | command a chute release | — |
 | `RESET` | re-base the auto-eject trigger. **Not a cancel** — `SET:AUTO:0` is | — |
-| `RESET:CHUTE` | the above, **plus clear the fire latch** — makes a fired chute fireable again | — |
+| `RESET:CHUTE` | the above, **plus clear the fire latch** — makes a fired chute fireable again, *immediately* | — |
 | `SET:DROP:<m>` | metres below peak before firing | 2.0 – 100.0 |
 | `SET:ARM:<m>` | altitude above boot before the trigger arms | 5.0 – 200.0 |
 | `SET:CYCLES:<n>` | consecutive confirming cycles | 1 – 10 |
@@ -240,15 +240,39 @@ python -m devtools.send_command RESET:CHUTE
   applied.** A sealed, flying vehicle cannot be asked what it is configured to do — bench
   USB and the SD card `#` lines answer that afterwards. (Declined GEN3.2 bump, twice.)
 - **Never test the uplink with EJECT.** Use PING.
-- **After an automatic release, the ground station's EJECT button transmits nothing.**
-  `fireEjectBurst()` checks `lastChute >= 1` first and prints `EJECT confirmed after 0
-  attempt(s)` without sending. True about the chute; not evidence the uplink works.
+- **After any release, `EJECT` transmits nothing until the vehicle has re-armed.**
+  `fireEjectBurst()` tests `lastChute > chuteBaseline` and prints `EJECT confirmed after 0
+  attempt(s)` without sending. True about the chute; not evidence the uplink works. This
+  is why an automatic release makes the button useless as a link test — use `PING`.
+- **A second `EJECT` is allowed once the cooldown has passed (061).** The vehicle returns
+  its mechanism to ARMED `CHUTE_HOLD_MS` after driving it and clears its own fire latch at
+  `CHUTE_REARM_MS` (3 s), so the console mirrors that with `EJECT_REARM_MS` and stops
+  refusing. Inside the cooldown you get:
+
+  ```
+  [GCS] EJECT already confirmed, ignoring - vehicle still re-arming
+  [GCS] wait for the cooldown, or send RESET:CHUTE to re-arm now
+  ```
+
+  and past it, `[GCS] EJECT re-armed after cooldown, chute baseline N` followed by an
+  ordinary burst. The refusal inside the window is deliberate: a burst sent then would be
+  received, counted into `chute`, and drive nothing — a release the operator is shown and
+  that never happened.
+- **`EJECT_REARM_MS` must never be shorter than the vehicle's `CHUTE_REARM_MS`.** The
+  vehicle's value decides when the mechanism can actually move; the ground's only decides
+  when the console stops saying no. Ground shorter than vehicle recreates exactly the
+  phantom release described above. Equal, or longer.
 - **`SET` and `RESET` need GEN4 on both units.** A GEN3 vehicle ignores them and never
   moves `ul`, so a GEN4 ground station reports failure loudly rather than pretending.
 - **Neither RESET clears the `chute` counter.** That counter is the ground station's
   confirmation signal for the eject burst, and zeroing it would make an already-fired
   chute look armed to the operator. `RESET` clears trigger state; `RESET:CHUTE` clears
   trigger state and the fire latch. Both leave `chute` where it is.
+- **`RESET:CHUTE` is no longer the only way to re-arm, but it is the only immediate one.**
+  Since 061 the vehicle re-arms itself after `CHUTE_REARM_MS`; `RESET:CHUTE` does it at
+  once, works on a vehicle built with `CHUTE_AUTO_REARM 0`, and is still the only thing
+  that clears `chuteEverFired` — which is what stops auto-eject firing after a commanded
+  release. Use it when you do not want to wait, or when the vehicle may not have re-armed.
 - **`RESET:CHUTE` also re-arms the GROUND station, and only if the vehicle confirmed.**
   The ground unit holds two latches of its own — `ejectConfirmed`, and the burst's test
   against `chuteBaseline` — and until 2026-08-29 neither was cleared by a reset, so
@@ -258,8 +282,14 @@ python -m devtools.send_command RESET:CHUTE
   is the safe direction: the vehicle's own fire latch is still set, so a transmitted
   EJECT would raise `chute` and drive nothing.
 - **A re-armed release takes `chute` to 2.** That is correct — the counter means
-  "releases commanded", and two were. Note the dashboard currently renders only
-  `chute === 1` as deployed.
+  "releases commanded", and two were. The dashboard renders it as `Commanded ×N` for
+  every N (rule S8, devlog 059); it does not use the word "deployed" anywhere, because no
+  canopy sensor exists.
+- **`chute` counts eject packets RECEIVED, not releases performed.** `chuteCommands++`
+  sits outside the vehicle's fire latch, so one operator `EJECT` whose 5-shot burst lands
+  twice moves the counter by 2 and drives the mechanism once. `CHUTE_REARM_MS` (3000 ms)
+  is deliberately longer than the burst span (~1404 ms) so that a single command can never
+  drive the mechanism twice — but the counter still moves per packet.
 - **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
   BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
   cycle against a fresh apogee and fires again once it has dropped `DROP` from there.
@@ -268,6 +298,9 @@ python -m devtools.send_command RESET:CHUTE
 - Validation lives in `dashboard.api.translate_command`, not in this script. The bounds
   above are duplicated in three places — `api.py`, the GEN4 ground station, the GEN4
   vehicle — and must be changed together.
+- **The re-arm delay is a fourth duplicated pair**: `CHUTE_REARM_MS` in the vehicle and
+  `EJECT_REARM_MS` in the ground station. Nothing enforces the relationship between them,
+  and the failure is a confirmed release that never happened.
 - **There is no dashboard UI for the GEN4 commands.** This script is the only path.
 
 ---

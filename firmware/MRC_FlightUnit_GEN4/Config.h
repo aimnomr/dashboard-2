@@ -81,7 +81,27 @@
 #define CHUTE_PIN               3
 #define CHUTE_SERVO_ARMED_DEG   90
 #define CHUTE_SERVO_RELEASE_DEG 160
-#define CHUTE_HOLD_MS           1000   /* servo only: time to reach position */
+#define CHUTE_HOLD_MS           1000   /* dwell at RELEASE before the horn returns to ARMED */
+
+/* ---- CHUTE RE-ARM --------------------------------------------------------
+ * The mechanism returns to its rest position CHUTE_HOLD_MS after it is driven,
+ * and the fire latch clears CHUTE_REARM_MS after that same instant, so a release
+ * can be commanded again without RESET:CHUTE.
+ *
+ * ⚠ CHUTE_REARM_MS must exceed the ground station's eject burst span, or the tail
+ * of one operator EJECT re-fires the mechanism as if it were a second command:
+ *
+ *     burst span = (EJECT_ATTEMPTS - 1) * (EJECT_RETRY_MS + airtime)
+ *                = 4 * ~351 ms = ~1404 ms
+ *
+ * 3000 ms leaves ~1.6 s of margin. Raise EJECT_ATTEMPTS or EJECT_RETRY_MS in the
+ * ground station's Config.h and this must move with them.
+ *
+ * CHUTE_AUTO_REARM 0 restores the pre-061 behaviour: one drive per boot, and only
+ * RESET:CHUTE clears the latch. The horn still returns to ARMED either way.
+ * ----------------------------------------------------------------------- */
+#define CHUTE_AUTO_REARM        1
+#define CHUTE_REARM_MS          3000
 
 /* ---- AUTO-EJECT ----------------------------------------------------------
  * Release on detected descent, without waiting for a command. A BACKUP to the

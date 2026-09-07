@@ -62,3 +62,5 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-29 · 057 · `CHUTE_PIN` reconciled, and the command reference audited against the code
 - 2026-08-29 · 058 · RESET:CHUTE re-arms the ground station, not just the vehicle
 - 2026-08-29 · 059 · The chute renders as a count, and never as "Deployed"
+- 2026-09-07 · 060 · The GEN4 sync word moved off `0xAB`
+- 2026-09-07 · 061 · The release mechanism returns to ARMED and re-arms itself

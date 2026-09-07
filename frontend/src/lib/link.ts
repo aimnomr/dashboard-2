@@ -98,8 +98,10 @@ export function lossPresentation(stats: LinkStats | null) {
  *
  * **The test.** This compared `chute === 1`, so a counter reading 2 fell through to
  * "Unknown" — on a vehicle whose chute had demonstrably fired. Two is reachable in normal
- * use: an eject burst spans more than one vehicle cycle, and RESET:CHUTE then EJECT is a
- * supported bench workflow (devlog 058). The count is now shown rather than matched,
+ * use, by three separate routes: an eject burst spans more than one vehicle cycle and the
+ * counter rises per PACKET received, RESET:CHUTE then EJECT is a supported bench workflow
+ * (devlog 058), and since 061 the vehicle re-arms itself so a second EJECT needs no reset
+ * at all. The count is now shown rather than matched,
  * which is what S8 asked for and is also the only version that cannot go stale as the
  * number grows.
  */
