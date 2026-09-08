@@ -1,22 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
 import { Panel } from '../components/Panel'
 import { PoseView } from '../components/PoseView'
-import { attitudeWarning, computeAttitude } from '../lib/attitude'
+import { computeAttitude } from '../lib/attitude'
 import type { FrameRecord } from '../types/telemetry'
 
 type Mode = 'model' | 'horizon'
 
 interface AttitudePanelProps {
   latest: FrameRecord | null
-  history: FrameRecord[]
 }
 
-export function AttitudePanel({ latest, history }: AttitudePanelProps) {
+/**
+ * Pitch, roll and spin, as a model or as a horizon.
+ *
+ * ⚠ This panel makes no judgement about the attitude it shows, and nothing in it
+ * discerns one pose from another. Until 2026-09-09 it desaturated the horizon, greyed the
+ * model and raised an `Attitude unreliable — <reason>` banner whenever the accelerometer
+ * stopped being a usable attitude reference — tumbling above 90 deg/s, or magnitude more
+ * than 0.25 g away from 1 g, which is to say under boost and in freefall. All three are
+ * gone: every attitude now renders exactly as any other does.
+ *
+ * `computeAttitude()` still returns `reliable` and `reason`, and `attitudeWarning()` is
+ * still exported and still tested. This panel reads neither. That is deliberate — the
+ * thresholds and the two-frame confirmation are measured from real logs and worth
+ * keeping, and restoring the display is a smaller change than rebuilding it.
+ *
+ * What the verdict was computed FROM stays on screen either way: magnitude as the `g`
+ * figure in the note, and spin rate in the readout. The operator reads the numbers and
+ * draws their own conclusion.
+ */
+export function AttitudePanel({ latest }: AttitudePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const attitude = latest ? computeAttitude(latest.frame) : null
-  // The readouts above use `attitude` and stay instant. Only the claim that they cannot
-  // be trusted is confirmed across frames — see attitudeWarning().
-  const warning = attitudeWarning(history)
   // The model reads better for a body that can be at any orientation; the horizon is
   // the familiar instrument. Both are the same numbers, so this is a preference and
   // deliberately not persisted.
@@ -69,11 +84,11 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
       ctx.rotate((-attitude.roll * Math.PI) / 180)
       const horizonY = attitude.pitch * (radius / 45)
 
-      // Desaturated when the reading is not trustworthy, so an unreliable horizon does
-      // not look like a confident one.
-      ctx.fillStyle = attitude.reliable ? '#dbeafe' : colour('--unknown-bg')
+      // Sky and ground, at the same two colours for every attitude. See the note on the
+      // component: the desaturated variant these used to switch to is gone.
+      ctx.fillStyle = '#dbeafe'
       ctx.fillRect(-radius * 2, -radius * 2 + horizonY, radius * 4, radius * 2)
-      ctx.fillStyle = attitude.reliable ? '#d6ccc0' : '#e4e4e7'
+      ctx.fillStyle = '#d6ccc0'
       ctx.fillRect(-radius * 2, horizonY, radius * 4, radius * 2)
 
       ctx.strokeStyle = colour('--text')
@@ -132,11 +147,7 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
     >
       <div className="attitude">
         {mode === 'model' ? (
-          <PoseView
-            pitch={attitude?.pitch ?? null}
-            roll={attitude?.roll ?? null}
-            reliable={warning === null}
-          />
+          <PoseView pitch={attitude?.pitch ?? null} roll={attitude?.roll ?? null} />
         ) : (
           <div className="canvas-host attitude__dial">
             <canvas ref={canvasRef} />
@@ -164,18 +175,6 @@ export function AttitudePanel({ latest, history }: AttitudePanelProps) {
           </div>
         </div>
       </div>
-
-      {/* An accelerometer measures gravity plus vehicle acceleration. Under boost or in
-          freefall the horizon is measuring thrust or nothing, so say so rather than
-          draw a confident attitude from meaningless numbers.
-
-          Confirmed across frames, not taken from the latest one: single-frame sensor
-          glitches were making this blink on a unit sitting still on a table. */}
-      {warning && (
-        <div className="notice notice--warn">
-          <span aria-hidden="true">▲</span> Attitude unreliable — {warning}
-        </div>
-      )}
     </Panel>
   )
 }

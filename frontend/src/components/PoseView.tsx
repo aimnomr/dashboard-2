@@ -5,8 +5,6 @@ interface PoseViewProps {
   /** Degrees, from the accelerometer. Null when no frame has arrived. */
   pitch: number | null
   roll: number | null
-  /** False when the accelerometer is not a usable attitude reference right now. */
-  reliable: boolean
 }
 
 /** Seconds for the model to cover most of the distance to a new sample. */
@@ -30,16 +28,15 @@ const MESH = cylinderMesh()
  * telemetry by about `SMOOTHING_TAU`. That is fine for a shape read at a glance and wrong
  * for a number, which is why the readouts beside it stay raw.
  */
-export function PoseView({ pitch, roll, reliable }: PoseViewProps) {
+export function PoseView({ pitch, roll }: PoseViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Targets live in a ref so the animation loop reads the latest values without being
   // torn down and restarted on every frame that arrives.
-  const target = useRef({ pitch: 0, roll: 0, reliable: true, has: false })
+  const target = useRef({ pitch: 0, roll: 0, has: false })
   target.current = {
     pitch: pitch ?? 0,
     roll: roll ?? 0,
-    reliable,
     has: pitch !== null && roll !== null,
   }
 
@@ -74,7 +71,7 @@ export function PoseView({ pitch, roll, reliable }: PoseViewProps) {
         if (ctx) {
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
           ctx.clearRect(0, 0, width, height)
-          render(ctx, width, height, shown, t.has, t.reliable, colour)
+          render(ctx, width, height, shown, t.has, colour)
         }
       }
 
@@ -98,7 +95,6 @@ function render(
   height: number,
   shown: { pitch: number; roll: number },
   hasData: boolean,
-  reliable: boolean,
   colour: (name: string) => string,
 ) {
   const cx = width / 2
@@ -134,7 +130,7 @@ function render(
     }
     ctx.closePath()
 
-    ctx.fillStyle = shade(face.kind, face.light, reliable)
+    ctx.fillStyle = shade(face.kind, face.light)
     ctx.fill()
 
     // Hairline in the fill colour: closes the seams between adjacent quads without
@@ -148,25 +144,26 @@ function render(
 }
 
 /**
- * Desaturated to grey when the accelerometer is not a usable reference — under boost, in
- * freefall, or tumbling. An unreliable pose must not look like a confident one.
+ * Face colour, from the face kind and its light level alone.
+ *
+ * ⚠ Every pose is shaded identically. Until 2026-09-09 the model desaturated to grey
+ * whenever the accelerometer was not a usable attitude reference — under boost, in
+ * freefall or tumbling — so that an unreliable pose could not look like a confident one.
+ * That styling was removed deliberately, along with the warning banner and the horizon's
+ * desaturation: the panel is to show the attitude it has at every instant, with nothing
+ * in the rendering discerning one pose from another.
+ *
+ * The inputs that judgement was made from are still on screen as numbers — magnitude as
+ * the `g` figure in the panel note, and spin rate in the readout — so the operator can
+ * still see what the sensor is doing. The shape simply no longer passes a verdict on it.
  */
 function shade(
   kind: 'body' | 'stripe' | 'nose' | 'tail',
   light: number,
-  reliable: boolean,
 ): string {
   const level = 0.35 + light * 0.6
   const mix = (base: [number, number, number]) =>
     `rgb(${Math.round(base[0] * level)}, ${Math.round(base[1] * level)}, ${Math.round(base[2] * level)})`
-
-  // Greyed when the accelerometer is not a usable reference — under boost, in freefall,
-  // or tumbling. An unreliable pose must not look like a confident one, and the shape
-  // carries that as plainly as the warning text below it does.
-  if (!reliable) {
-    const g = Math.round(150 + level * 70)
-    return `rgb(${g}, ${g}, ${g + 4})`
-  }
 
   switch (kind) {
     case 'stripe':
