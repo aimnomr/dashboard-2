@@ -80,6 +80,15 @@
  * only way to re-arm a vehicle that has NOT re-armed itself — CHUTE_AUTO_REARM 0. */
 #define EJECT_REARM_MS  3000
 
+/* What the VEHICLE's CHUTE_AUTO_REARM is set to, so this unit starts with the right
+ * assumption about the release mode and returns to it when the vehicle reboots.
+ *
+ * ⚠ MIRRORS CHUTE_AUTO_REARM in MRC_FlightUnit_GEN4/Config.h. A fourth number that has
+ * to be kept in step by hand — and the only one of them the ground cannot verify, since
+ * GEN3.1 has no config fields to read back. If in doubt set this to 0: assuming SINGLE
+ * costs a needless RESET:CHUTE, assuming MULTI reports releases that never happened. */
+#define VEHICLE_DEFAULT_REPEAT  1
+
 /* PING proves the uplink works WITHOUT firing the parachute.
  *
  * This ground station still cannot tell whether the vehicle heard it — there is

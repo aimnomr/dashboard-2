@@ -44,8 +44,9 @@
 #include <HardwareSerial.h>
 
 /* Corrected 2026-08-19: these were swapped, which is what produced chars=0. */
-#define GPS_RX_PIN     19
-#define GPS_TX_PIN     20
+/* 2026-09-07: back to 20/19 for the new PCB. Not a revert of 042 — see devlog 062. */
+#define GPS_RX_PIN     20
+#define GPS_TX_PIN     19
 #define GPS_BAUD       9600
 
 /* Heltec V3 switches its external 3.3 V rail with this pin, active LOW.

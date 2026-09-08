@@ -63,8 +63,9 @@
 #define VEXT_PIN   36
 
 /* Corrected 2026-08-19: these were swapped, which is what produced chars=0. */
-#define GPS_RX_PIN 19        /* ESP32 receives here  <- module TX */
-#define GPS_TX_PIN 20        /* ESP32 transmits here -> module RX */
+/* 2026-09-07: back to 20/19 for the new PCB. Not a revert of 042 — see devlog 062. */
+#define GPS_RX_PIN 20        /* ESP32 receives here  <- module TX */
+#define GPS_TX_PIN 19        /* ESP32 transmits here -> module RX */
 #define GPS_BAUD   9600
 
 #define PERIOD_MS  1000

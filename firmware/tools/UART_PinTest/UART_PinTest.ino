@@ -37,7 +37,11 @@
 
 #include <HardwareSerial.h>
 
-/* The pair currently used for the GPS. Change these to test alternatives. */
+/* The pair currently used for the GPS. Change these to test alternatives.
+ *
+ * These two were NOT updated by devlog 042 and were wrong here from 2026-08-19 until
+ * 2026-09-07, when the new PCB made them right again by coincidence. Checked against
+ * the flight unit's Config.h on 2026-09-07; see devlog 062. */
 #define TEST_RX_PIN   20
 #define TEST_TX_PIN   19
 

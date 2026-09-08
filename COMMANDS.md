@@ -206,6 +206,7 @@ python -m devtools.send_command SET:DROP:15.0
 python -m devtools.send_command SET:ARM:50.0
 python -m devtools.send_command SET:CYCLES:2
 python -m devtools.send_command SET:AUTO:0
+python -m devtools.send_command SET:REPEAT:1
 python -m devtools.send_command RESET
 python -m devtools.send_command RESET:CHUTE
 ```
@@ -220,6 +221,7 @@ python -m devtools.send_command RESET:CHUTE
 | `SET:ARM:<m>` | altitude above boot before the trigger arms | 5.0 – 200.0 |
 | `SET:CYCLES:<n>` | consecutive confirming cycles | 1 – 10 |
 | `SET:AUTO:<0\|1>` | enable/disable auto-eject | 0 or 1 |
+| `SET:REPEAT:<0\|1>` | release mode: **1** MULTI, the drive latch expires; **0** SINGLE, only `RESET:CHUTE` re-arms | 0 or 1 |
 
 | Flag | Effect |
 |---|---|
@@ -244,6 +246,19 @@ python -m devtools.send_command RESET:CHUTE
   `fireEjectBurst()` tests `lastChute > chuteBaseline` and prints `EJECT confirmed after 0
   attempt(s)` without sending. True about the chute; not evidence the uplink works. This
   is why an automatic release makes the button useless as a link test — use `PING`.
+- **`SET:REPEAT` chooses the release mode, and it governs the COMMANDED path only.**
+  `1` (MULTI) lets the vehicle's drive latch expire after `CHUTE_REARM_MS`, so repeat
+  releases can be commanded. `0` (SINGLE) restores one drive per boot, with `RESET:CHUTE`
+  as the only re-arm. **Auto-eject is one-shot per boot in both modes** — the descent
+  condition stays true for the whole descent, so an expiring latch there would drive the
+  mechanism every cycle of the fall. `RESET`/`RESET:CHUTE` remain its only re-arm.
+- **A reboot forgets `SET:REPEAT`.** The vehicle returns to `CHUTE_AUTO_REARM` from its
+  `Config.h`, the same way the apogee config returns to its compile-time defaults. The
+  ground station detects the restart (`ul` falling) and resets its own assumption to
+  `VEHICLE_DEFAULT_REPEAT` — but **that is an assumption, never a readback**: GEN3.1
+  carries no config fields, so neither the ground nor the dashboard can see the vehicle's
+  actual mode. The `#` config lines on the SD card are the only true record, after
+  recovery, and they now carry `repeat=`.
 - **A second `EJECT` is allowed once the cooldown has passed (061).** The vehicle returns
   its mechanism to ARMED `CHUTE_HOLD_MS` after driving it and clears its own fire latch at
   `CHUTE_REARM_MS` (3 s), so the console mirrors that with `EJECT_REARM_MS` and stops

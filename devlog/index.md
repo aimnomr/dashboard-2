@@ -64,3 +64,7 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-08-29 · 059 · The chute renders as a count, and never as "Deployed"
 - 2026-09-07 · 060 · The GEN4 sync word moved off `0xAB`
 - 2026-09-07 · 061 · The release mechanism returns to ARMED and re-arms itself
+- 2026-09-07 · 062 · GPS RX/TX back to 20/19 for the new PCB
+- 2026-09-07 · 063 · The dashboard can command a repeat release
+- 2026-09-07 · 064 · SINGLE and MULTI release modes, switchable from the ground
+- 2026-09-07 · 065 · A swallowed EJECT, an undercounted chute, and a poisoned altitude baseline

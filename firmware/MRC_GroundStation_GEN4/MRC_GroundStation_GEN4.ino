@@ -62,6 +62,21 @@ uint8_t  ejectAttempts  = 0;
  * false; never read in that state. See EJECT_REARM_MS in Config.h. */
 uint32_t ejectConfirmedMs = 0;
 
+/* What this unit believes the vehicle's release mode to be — MULTI (the drive latch
+ * expires) or SINGLE (only RESET:CHUTE re-arms).
+ *
+ * ⚠ An assumption, never a readback. GEN3.1 carries no config fields, so the vehicle
+ * cannot report its mode and this is only ever "what I last successfully told it".
+ * Starts at the vehicle's compile-time default, is moved by a confirmed SET:REPEAT, and
+ * is reset by radioPoll() when the vehicle is seen to reboot — a restart returns the
+ * vehicle to CHUTE_AUTO_REARM, and a stale MULTI here would let the console send an
+ * EJECT the vehicle silently refuses to act on.
+ *
+ * Wrong in the SINGLE direction it costs a needless RESET:CHUTE. Wrong in the MULTI
+ * direction it reports a release that never happened, which is the failure this whole
+ * confirmation chain exists to prevent — so it fails to SINGLE. */
+bool     assumedRepeat  = (VEHICLE_DEFAULT_REPEAT != 0);
+
 /* The value of `chute` above which a release counts as a NEW one.
  *
  * 0 from boot, so `lastChute > chuteBaseline` is identical to the old

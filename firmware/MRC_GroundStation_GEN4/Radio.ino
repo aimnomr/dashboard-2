@@ -151,8 +151,25 @@ void radioPoll() {
 
   /* Only now, and only for the retry loop, do we look inside. */
   if (packetCrcValid(received.c_str())) {
+    int freshUl = parseUl(received.c_str());
+
+    /* A FALL in `ul` is a vehicle restart — the counter only ever climbs within a boot.
+     * That matters here because a restarted vehicle has forgotten any SET:REPEAT and is
+     * back on its compile-time default, so a MULTI assumption held over a reboot would
+     * let the console send an EJECT the vehicle refuses to act on.
+     *
+     * `ul` rather than `seq` because this unit already parses it, and rather than a
+     * chute fall because chute is zeroed by the same restart and says less. -1 is "not
+     * yet known" and is not a fall. */
+    if (lastUl > 0 && freshUl >= 0 && freshUl < lastUl) {
+      if (assumedRepeat != (VEHICLE_DEFAULT_REPEAT != 0)) {
+        assumedRepeat = (VEHICLE_DEFAULT_REPEAT != 0);
+        Serial.println("[GCS] vehicle restarted - release mode assumption reset to default");
+      }
+    }
+
     lastChute = parseChute(received.c_str());
-    lastUl    = parseUl(received.c_str());
+    lastUl    = freshUl;
   } else {
     packetsBadCrc++;
     /* Deliberately leave lastChute alone: a failed checksum tells us nothing

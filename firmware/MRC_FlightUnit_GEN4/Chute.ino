@@ -30,6 +30,19 @@ static bool     chuteFired     = false;
 static bool     chuteEverFired = false;
 static uint32_t chuteDrivenMs  = 0;
 
+/* Whether the drive latch is allowed to expire — SINGLE vs MULTI release mode.
+ *
+ * CHUTE_AUTO_REARM is the power-on DEFAULT, not the decision: SET:REPEAT:0|1 moves this
+ * at runtime, so a sealed unit can be put in either mode without opening it. Reset to
+ * the default by chuteBegin(), which means a reboot forgets it — the same rule the
+ * apogee config already follows, and the safe direction when the default is SINGLE.
+ *
+ * ⚠ This governs the COMMANDED path only. Auto-eject is one-shot per boot in both
+ * modes, gated by autoEjectFired and chuteEverFired, and RESET:CHUTE is the only thing
+ * that re-arms it. See Apogee.ino — the descent condition stays true for the whole
+ * descent, so an expiring latch there would fire every cycle of the fall. */
+static bool     chuteRepeat    = (CHUTE_AUTO_REARM != 0);
+
 void chuteBegin() {
 #if CHUTE_USE_SERVO
   chuteServo.attach(CHUTE_PIN);
@@ -41,6 +54,7 @@ void chuteBegin() {
   chuteDriven    = false;
   chuteFired     = false;
   chuteEverFired = false;
+  chuteRepeat    = (CHUTE_AUTO_REARM != 0);
 }
 
 /* Idempotent while the latch holds. The ground station retries until it sees the
@@ -92,16 +106,34 @@ void chuteTick() {
     Serial.println("[FLT] chute mechanism returned to ARMED position");
   }
 
-#if CHUTE_AUTO_REARM
-  /* 2. Clear the drive latch. Deliberately later than the return sweep and later
-   *    than the ground's eject burst — see the arithmetic in Config.h. Clearing it
-   *    at CHUTE_HOLD_MS instead would let attempts 4 and 5 of a single operator
-   *    EJECT drive the mechanism a second time. */
-  if (chuteFired && since >= CHUTE_REARM_MS) {
+  /* 2. Clear the drive latch, in MULTI mode only. Deliberately later than the return
+   *    sweep and later than the ground's eject burst — see the arithmetic in Config.h.
+   *    Clearing it at CHUTE_HOLD_MS instead would let attempts 4 and 5 of a single
+   *    operator EJECT drive the mechanism a second time.
+   *
+   *    In SINGLE mode the latch stands until RESET:CHUTE, which is the pre-061
+   *    behaviour and what a flight build should normally carry. */
+  if (chuteRepeat && chuteFired && since >= CHUTE_REARM_MS) {
     chuteFired = false;
     Serial.println("[FLT] chute re-armed - a further release can be commanded");
   }
-#endif
+}
+
+/* SET:REPEAT:0|1. Returns the value actually held, so the caller can report it.
+ *
+ * Turning repeat OFF does not re-latch a mechanism that has already re-armed: the
+ * change applies from here forward, exactly like SET:AUTO leaving apogee state intact.
+ * If the intent is "make this vehicle single-shot again from a known state", that is
+ * SET:REPEAT:0 followed by RESET:CHUTE. */
+void chuteSetRepeat(bool on) {
+  chuteRepeat = on;
+  Serial.print("[FLT] release mode ");
+  Serial.println(on ? "MULTI - the drive latch expires on its own"
+                    : "SINGLE - only RESET:CHUTE re-arms");
+}
+
+bool chuteRepeatEnabled() {
+  return chuteRepeat;
 }
 
 /* Sticky for the boot, so apogeeUpdate()'s "the ground got there first" guard is

@@ -125,3 +125,82 @@ def test_a_replay_reports_failure_for_every_command():
     source = FileSource(FIXTURES / "FLIGHT22.CSV")
     assert asyncio.run(source.send_command(CMD_EJECT)) is False
     assert asyncio.run(source.send_command(CMD_PING)) is False
+
+
+# -------------------------------------------------- release mode, SINGLE vs MULTI (064)
+
+FIRMWARE = Path(__file__).resolve().parents[2] / "firmware"
+GEN4_VEHICLE_CONFIG = FIRMWARE / "MRC_FlightUnit_GEN4" / "Config.h"
+GEN4_GROUND_CONFIG = FIRMWARE / "MRC_GroundStation_GEN4" / "Config.h"
+
+
+def firmware_int(path: Path, name: str) -> int:
+    """Read a bare `#define NAME <int>` out of a firmware header."""
+    match = re.search(
+        rf"^#define\s+{name}\s+(-?\d+)", path.read_text(encoding="utf-8"), re.M
+    )
+    assert match is not None, f"{name} not found in {path}"
+    return int(match.group(1))
+
+
+def test_the_ground_station_assumes_the_vehicles_actual_default_release_mode():
+    """VEHICLE_DEFAULT_REPEAT is a copy of CHUTE_AUTO_REARM, kept in step by hand.
+
+    It is the one mirrored constant the ground cannot verify at runtime: GEN3.1 carries
+    no config fields, so the ground station can never read the vehicle's real mode and
+    only ever knows what it last told it. If these drift apart, the console believes a
+    rebooted vehicle is in MULTI when it is in SINGLE, sends an EJECT the vehicle
+    silently refuses to act on, watches `chute` rise on the received packet, and reports
+    a release that never happened.
+
+    That is the exact failure devlog 058 was written to prevent, arriving through a
+    constant nobody thought of as protocol. CHUTE_PIN (057), the sync word (060) and the
+    GPS pins (062) all drifted the same way; this one gets a test instead of a comment.
+    """
+    assert firmware_int(GEN4_GROUND_CONFIG, "VEHICLE_DEFAULT_REPEAT") == firmware_int(
+        GEN4_VEHICLE_CONFIG, "CHUTE_AUTO_REARM"
+    )
+
+
+def test_the_ground_cooldown_is_not_shorter_than_the_vehicles():
+    """Ground shorter than vehicle is the dangerous direction, and it is silent.
+
+    The console would re-enable EJECT while the vehicle's drive latch is still set. Equal
+    or longer is safe: the operator waits a moment longer than strictly necessary.
+    """
+    assert firmware_int(GEN4_GROUND_CONFIG, "EJECT_REARM_MS") >= firmware_int(
+        GEN4_VEHICLE_CONFIG, "CHUTE_REARM_MS"
+    )
+
+
+def test_the_vehicle_knows_every_set_key_the_backend_will_send():
+    """The backend must not offer a key the flight firmware would reject.
+
+    `ul` rises whether the vehicle applies a value or refuses it, so a key the vehicle
+    does not know looks confirmed from the ground and changes nothing.
+    """
+    from dashboard.api import GEN4_SET_KEYS
+
+    handler = (FIRMWARE / "MRC_FlightUnit_GEN4" / "Apogee.ino").read_text(
+        encoding="utf-8"
+    )
+    for key in GEN4_SET_KEYS:
+        assert f'"{key}"' in handler, f"SET:{key} is not handled by the GEN4 vehicle"
+
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_set_repeat_is_accepted(value):
+    from dashboard.api import translate_command
+
+    wire, reason = translate_command(f"SET:REPEAT:{value}")
+    assert reason is None
+    assert wire == f"CMD:SET:REPEAT:{value}"
+
+
+@pytest.mark.parametrize("value", ["2", "-1", "x", ""])
+def test_set_repeat_rejects_anything_but_zero_or_one(value):
+    from dashboard.api import translate_command
+
+    wire, reason = translate_command(f"SET:REPEAT:{value}")
+    assert wire is None
+    assert reason is not None

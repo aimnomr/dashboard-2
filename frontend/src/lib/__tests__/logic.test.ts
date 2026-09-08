@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { attitudeWarning, computeAttitude, UNRELIABLE_CONFIRM } from '../attitude'
 import { fixStale, hasFix, hasLiveFix, niceScale, toLocal } from '../geo'
-import { chutePresentation, formatMeasurement, lossPresentation } from '../link'
+import {
+  EJECT_REARM_MS,
+  chutePresentation,
+  formatMeasurement,
+  lossPresentation,
+  rearmPresentation,
+} from '../link'
 import type { FrameRecord, LinkStats } from '../../types/telemetry'
 import type { TelemetryFrame } from '../../types/telemetry'
 
@@ -323,5 +329,53 @@ describe('the chute never claims a canopy opened (S8)', () => {
     for (const value of [null, undefined, 0, 1, 2, 99]) {
       expect(chutePresentation(value).label.toLowerCase()).not.toContain('deploy')
     }
+  })
+})
+
+describe('the eject control re-arms rather than latching (063)', () => {
+  // Until 063 a fired chute hid the Eject control permanently, so the repeat release
+  // devlog 061 added to the firmware was unreachable from the dashboard.
+
+  it('allows a release when nothing has fired in this session', () => {
+    expect(rearmPresentation(null, 10_000)).toEqual({ rearming: false, secondsLeft: 0 })
+  })
+
+  it('refuses immediately after a release', () => {
+    const rose = 10_000
+    expect(rearmPresentation(rose, rose).rearming).toBe(true)
+  })
+
+  it('allows a release once the cooldown has fully elapsed', () => {
+    const rose = 10_000
+    expect(rearmPresentation(rose, rose + EJECT_REARM_MS)).toEqual({
+      rearming: false,
+      secondsLeft: 0,
+    })
+  })
+
+  it('still refuses one millisecond before the cooldown ends', () => {
+    const rose = 10_000
+    expect(rearmPresentation(rose, rose + EJECT_REARM_MS - 1).rearming).toBe(true)
+  })
+
+  it('never counts down to zero while still refusing', () => {
+    const rose = 10_000
+    for (let t = 0; t < EJECT_REARM_MS; t += 100) {
+      const state = rearmPresentation(rose, rose + t)
+      expect(state.rearming).toBe(true)
+      expect(state.secondsLeft).toBeGreaterThan(0)
+    }
+  })
+
+  it('fails closed on clock skew rather than enabling the control', () => {
+    // A `now` behind the recorded rise must not read as "cooldown long past".
+    expect(rearmPresentation(10_000, 9_000).rearming).toBe(true)
+  })
+
+  it('mirrors the firmware cooldown', () => {
+    // CHUTE_REARM_MS in MRC_FlightUnit_GEN4/Config.h, EJECT_REARM_MS in the ground
+    // station's. If those move and this does not, the button re-enables while the
+    // vehicle is still latched and reports a release that never drove anything.
+    expect(EJECT_REARM_MS).toBe(3000)
   })
 })

@@ -114,3 +114,41 @@ export function chutePresentation(chute: number | null | undefined) {
   }
   return { label: 'Unknown', icon: '?', tone: 'unknown' as const }
 }
+
+/**
+ * How long after a release the Eject control stays disabled.
+ *
+ * ⚠ MIRRORS `CHUTE_REARM_MS` (MRC_FlightUnit_GEN4/Config.h) and `EJECT_REARM_MS`
+ * (MRC_GroundStation_GEN4/Config.h). Three copies of one number now, in three
+ * languages; devlog 061 records why the firmware pair cannot simply be derived, and
+ * this third copy exists because the browser has no way to read either.
+ *
+ * Being WRONG here is cosmetic in one direction and misleading in the other. Too long
+ * and the operator waits needlessly. Too short and the button re-enables while the
+ * vehicle's own latch is still set, so the burst is received, `chute` rises, and the
+ * panel reports a release that never drove anything — the failure devlog 058 exists to
+ * prevent. If they diverge, this one should be the LONGEST of the three.
+ */
+export const EJECT_REARM_MS = 3000
+
+/**
+ * Whether a further release may be commanded yet, given when `chute` last rose.
+ *
+ * `null` means no rise has been observed in this session — either nothing has fired, or
+ * the dashboard was opened after the fact. Both are "not re-arming": a vehicle that
+ * fired before this page loaded re-armed long ago, and refusing on a counter that was
+ * already non-zero at load is the absolute-test bug from devlog 058 in another costume.
+ */
+export function rearmPresentation(chuteRoseAt: number | null, now: number) {
+  if (chuteRoseAt === null) return { rearming: false, secondsLeft: 0 }
+
+  const elapsed = now - chuteRoseAt
+  if (elapsed >= EJECT_REARM_MS) return { rearming: false, secondsLeft: 0 }
+
+  /* Clamped to 1 rather than 0 so the countdown never renders "0s" while still
+     refusing. A negative elapsed is clock skew, and fails closed by the same branch. */
+  return {
+    rearming: true,
+    secondsLeft: Math.max(1, Math.ceil((EJECT_REARM_MS - elapsed) / 1000)),
+  }
+}

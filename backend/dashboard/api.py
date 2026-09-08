@@ -66,6 +66,10 @@ GEN4_SET_KEYS: dict[str, tuple[type, float, float]] = {
     "ARM": (float, 5.0, 200.0),
     "CYCLES": (int, 1, 10),
     "AUTO": (int, 0, 1),
+    # Release mode: 1 = MULTI, the vehicle's drive latch expires and repeat releases can
+    # be commanded; 0 = SINGLE, only RESET:CHUTE re-arms it. Governs the COMMANDED path
+    # only — auto-eject is one-shot per boot in both modes.
+    "REPEAT": (int, 0, 1),
 }
 
 

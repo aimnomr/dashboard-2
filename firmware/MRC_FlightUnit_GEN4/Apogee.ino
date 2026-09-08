@@ -114,9 +114,10 @@ static bool    autoEjectFired = false;  /* this file's own one-shot latch */
  * configured to do: GEN4 deliberately did not add packet fields for this, so a
  * sealed unit's config is answerable after recovery and not before. */
 void apogeeConfigLine(char *out, size_t cap) {
-  snprintf(out, cap, "# %lu cfg auto=%d arm=%.1f drop=%.1f cycles=%u",
+  snprintf(out, cap, "# %lu cfg auto=%d arm=%.1f drop=%.1f cycles=%u repeat=%d",
            (unsigned long)millis(), cfg.enabled ? 1 : 0,
-           cfg.armAltM, cfg.dropM, (unsigned)cfg.confirmN);
+           cfg.armAltM, cfg.dropM, (unsigned)cfg.confirmN,
+           chuteRepeatEnabled() ? 1 : 0);
 }
 
 static void apogeeReportConfig(const char *why) {
@@ -289,6 +290,18 @@ bool apogeeHandleSet(const char *arg) {
     cfg.enabled = (v == 1);
     /* Switching off mid-descent leaves apogee and armed intact, so switching back
      * on resumes the rule where it was rather than starting over. */
+
+  } else if (keyLen == 6 && strncmp(arg, "REPEAT", 6) == 0) {
+    int v = atoi(value);
+    if (v != 0 && v != 1) {
+      Serial.print("[FLT] SET:REPEAT rejected, expected 0 or 1, got ");
+      Serial.println(value);
+      return false;
+    }
+    /* Dispatched here because every SET is, but the state lives in Chute.ino with the
+     * mechanism it governs. This one does NOT touch the apogee rule: auto-eject is
+     * one-shot per boot in both modes, and RESET:CHUTE is its only re-arm. */
+    chuteSetRepeat(v == 1);
 
   } else {
     Serial.print("[FLT] SET rejected, unknown key: ");

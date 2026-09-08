@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Panel } from '../components/Panel'
+import { rearmPresentation } from '../lib/link'
 import type { CommandAck, FrameRecord } from '../types/telemetry'
 
 interface EjectPanelProps {
@@ -24,6 +25,8 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
      the ground station refuse to re-send EJECT after a reset (devlog 058). */
   const [chuteAtSend, setChuteAtSend] = useState<number | null>(null)
   const [pingAt, setPingAt] = useState<number | null>(null)
+  const [chuteRoseAt, setChuteRoseAt] = useState<number | null>(null)
+  const [seenChute, setSeenChute] = useState<number | null>(null)
 
   const chute = latest?.frame.chute ?? null
   /* Total uplink commands the vehicle reports receiving. GEN3.1 only — null on older
@@ -33,14 +36,11 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
      auto-eject. Never "deployed": no canopy sensor exists anywhere in this system, so
      that word is a claim nothing here can support (rule S8).
 
-     ⚠ This also gates the controls: once it is true the Arm and Eject buttons are
-     replaced by the banner, permanently, because `chute` is monotonic and only a vehicle
-     reboot returns it to 0. That was defensible while a second release required
-     RESET:CHUTE — a command this panel does not offer — but 061 makes repeat releases a
-     normal operation the firmware now supports and this panel still cannot reach. The
-     CLI (`send_command EJECT`) is the only path to a second release from the ground.
-     Restoring a parachute control after a release is a UI decision with its own safety
-     shape and has NOT been taken here. */
+     This reports; it no longer GATES. Until 063 a true value replaced the Arm and Eject
+     buttons with the banner permanently — `chute` is monotonic and only a vehicle reboot
+     returns it to 0 — which made the repeat release 061 added unreachable from the only
+     graphical path to the uplink. The banner and the controls now coexist: the count is
+     still shown, and the arming step is still required for every shot. */
   const commanded = chute !== null && chute > 0
 
   useEffect(() => {
@@ -49,8 +49,35 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
     return () => window.clearTimeout(id)
   }, [armedAt])
 
+  /* When `chute` last ROSE, which is when the vehicle started re-arming. Tracked as a
+     rise rather than as an absolute value so that opening the dashboard on a vehicle
+     that fired an hour ago does not disable the control — that vehicle re-armed long
+     ago, and refusing on a non-zero counter is the devlog 058 bug in another costume.
+
+     A vehicle reboot returns `chute` to 0, which is a FALL and correctly records
+     nothing: a rebooted vehicle has an armed mechanism and no cooldown to serve. */
+  useEffect(() => {
+    if (chute === null) return
+    if (seenChute === null) {
+      setSeenChute(chute)
+      return
+    }
+    if (chute > seenChute) {
+      setSeenChute(chute)
+      setChuteRoseAt(Date.now())
+    } else if (chute < seenChute) {
+      setSeenChute(chute)
+    }
+  }, [chute, seenChute])
+
   const armed = armedAt !== null && now - armedAt < ARM_TIMEOUT_MS
   const armSecondsLeft = armedAt ? Math.ceil((ARM_TIMEOUT_MS - (now - armedAt)) / 1000) : 0
+
+  /* Mirrors the vehicle's own CHUTE_REARM_MS. Refusing here is a courtesy, not a
+     safeguard — the ground station refuses independently, and the vehicle's latch is the
+     thing that actually decides. Pressing through it would not fire the mechanism; it
+     would raise `chute` and report a release that never happened, which is worse. */
+  const { rearming, secondsLeft: rearmSecondsLeft } = rearmPresentation(chuteRoseAt, now)
 
   const fire = () => {
     sendCommand('eject')
@@ -69,10 +96,9 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
      before it had been sent. Null baseline (firmware with no chute field) never rises,
      which is the honest answer for a vehicle that cannot report this at all.
 
-     Since 061 a vehicle re-arms itself after CHUTE_REARM_MS, so repeat releases are
-     ordinary rather than a reset-only bench workflow — which makes the relative test
-     load-bearing rather than defensive. See the note by `commanded` below: this panel
-     still has no way to SEND that second command. */
+     Since 061 a vehicle re-arms itself after CHUTE_REARM_MS, and since 063 this panel
+     can command that repeat, so the relative test is load-bearing rather than
+     defensive: every shot after the first starts from a non-zero baseline. */
   const roseSinceSend =
     sentAt !== null && chute !== null && chuteAtSend !== null && chute > chuteAtSend
   const awaitingConfirmation = sentAt !== null && !roseSinceSend
@@ -83,29 +109,32 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
     // Titled for the path, not for the one dangerous command on it: this panel now
     // carries both uplink commands the ground station accepts.
     <Panel title="Uplink" area="eject">
-      {commanded ? (
+      {commanded && (
         <div className="notice notice--alert" style={{ fontWeight: 800 }}>
           <span aria-hidden="true">◆</span> Release commanded ×{chute}
         </div>
-      ) : (
-        <div className="eject__controls">
-          <button
-            type="button"
-            className={`btn btn--arm ${armed ? 'is-armed' : ''}`}
-            onClick={() => setArmedAt(armed ? null : Date.now())}
-          >
-            {armed ? `Armed · ${armSecondsLeft}s` : 'Arm'}
-          </button>
-          <button
-            type="button"
-            className="btn btn--fire"
-            disabled={!armed}
-            onClick={fire}
-          >
-            Eject
-          </button>
-        </div>
       )}
+
+      {/* Shown whether or not a release has already been commanded. The arming step is
+          the guard on this control, and it is required for every shot — a repeat is not
+          cheaper to fire than the first one. */}
+      <div className="eject__controls">
+        <button
+          type="button"
+          className={`btn btn--arm ${armed ? 'is-armed' : ''}`}
+          onClick={() => setArmedAt(armed ? null : Date.now())}
+        >
+          {armed ? `Armed · ${armSecondsLeft}s` : 'Arm'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--fire"
+          disabled={!armed || rearming}
+          onClick={fire}
+        >
+          {rearming ? `Re-arming · ${rearmSecondsLeft}s` : commanded ? 'Eject again' : 'Eject'}
+        </button>
+      </div>
 
       {/* "Sent" means the bytes left the PC. It does not mean the ground unit
           transmitted them, that the vehicle heard them, or that the chute fired. The
@@ -138,12 +167,11 @@ export function EjectPanel({ latest, lastAck, now, sendCommand }: EjectPanelProp
         </div>
       )}
 
-      {!commanded && (
-        <p className="panel__footnote">
-          No acknowledgement path — the only signal is `chute` rising in later telemetry,
-          and that reports the mechanism was driven, never that a canopy opened.
-        </p>
-      )}
+      <p className="panel__footnote">
+        No acknowledgement path — the only signal is `chute` rising in later telemetry,
+        and that reports the mechanism was driven, never that a canopy opened.
+        {commanded && ' The counter rises per eject packet received, so it can climb by more than one per command.'}
+      </p>
 
       {/* The only way to test the uplink without deploying a parachute to test it.
           Deliberately not arm-guarded: a control that fires nothing does not need a

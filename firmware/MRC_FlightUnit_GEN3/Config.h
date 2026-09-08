@@ -170,12 +170,19 @@
 #define I2C_SDA           1        /* BME280 + MPU6050 share TwoWire(1) */
 #define I2C_SCL           2
 
-/* These two were the wrong way round until 2026-08-19 — the classic TX-to-TX wiring
- * fault, and the actual cause of `chars=0`. Entry 026 concluded the module was
- * unpowered; it was not, it was talking into a pin that was also transmitting.
- * GPS_RX is the ESP32's RX pin and connects to the module's TX. */
-#define GPS_RX            19
-#define GPS_TX            20
+/* GPS_RX is the ESP32's RX pin and connects to the module's TX. That MEANING has
+ * never changed; only the pin numbers have, and they have now changed twice.
+ *
+ *   until 2026-08-19   RX 20 / TX 19   wrong for the board of the day — the classic
+ *                                      TX-to-TX fault, and the real cause of chars=0
+ *   2026-08-19 (042)   RX 19 / TX 20   correct for that board
+ *   2026-09-07 (062)   RX 20 / TX 19   the new PCB routes the pair the other way
+ *
+ * ⚠ The numbers below are back at their pre-042 values, and they are NOT a revert.
+ * Devlog 042 was right about the board it was written for. Reading it now, out of
+ * order, looks like this change undoes it — see 062 before "fixing" this again. */
+#define GPS_RX            20
+#define GPS_TX            19
 
 #define SD_CS             4        /* HSPI */
 #define SD_SCK            5

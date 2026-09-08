@@ -101,6 +101,16 @@ void handleCommand(const char *line) {
        * ⚠ Re-capturing chuteBaseline is not optional. `lastChute` is already above
        * the old baseline from the previous release, so leaving it alone would make
        * fireEjectBurst() confirm on its first test and transmit nothing at all. */
+      /* SINGLE mode: the vehicle's latch never expires, so no amount of waiting makes
+       * a second EJECT work. Sending one anyway would be received, counted into
+       * `chute`, and drive nothing — a release the operator is shown and that never
+       * happened. Say so instead of counting down to a cooldown that means nothing. */
+      if (!assumedRepeat) {
+        Serial.println("[GCS] EJECT already confirmed, ignoring - release mode is SINGLE");
+        Serial.println("[GCS] send RESET:CHUTE to re-arm, or SET:REPEAT:1 for repeat releases");
+        return;
+      }
+
       if ((uint32_t)(millis() - ejectConfirmedMs) < EJECT_REARM_MS) {
         Serial.println("[GCS] EJECT already confirmed, ignoring - vehicle still re-arming");
         Serial.println("[GCS] wait for the cooldown, or send RESET:CHUTE to re-arm now");
@@ -170,7 +180,23 @@ void handleCommand(const char *line) {
     Serial.print("[GCS] ");
     Serial.print(token);
     Serial.println(" armed");
-    fireConfigBurst(token);
+
+    bool sent = fireConfigBurst(token);
+
+    /* Track the release mode so the console guard below knows whether the vehicle's
+     * drive latch expires. Recorded only on a CONFIRMED burst: `ul` rising proves
+     * receipt, and for REPEAT there is no rejection path the vehicle could take that
+     * receipt would hide — the value is 0 or 1 and both were validated here.
+     *
+     * ⚠ This is an ASSUMPTION, not a readback. GEN3.1 carries no config fields, so the
+     * ground cannot see the vehicle's actual mode; it can only remember what it last
+     * successfully told it. assumedRepeat is reset on a detected reboot, because the
+     * vehicle returns to CHUTE_AUTO_REARM when it restarts. */
+    if (sent && strncmp(arg, "REPEAT:", 7) == 0) {
+      assumedRepeat = (atoi(arg + 7) == 1);
+      Serial.print("[GCS] release mode now assumed ");
+      Serial.println(assumedRepeat ? "MULTI" : "SINGLE");
+    }
     return;
   }
 
@@ -209,6 +235,16 @@ bool configValueInRange(const char *arg) {
       Serial.print(AUTO_EJECT_DROP_MAX_M, 1);
       Serial.print(" m, got ");
       Serial.println(v, 1);
+      return false;
+    }
+    return true;
+  }
+
+  if (keyLen == 6 && strncmp(arg, "REPEAT", 6) == 0) {
+    int v = atoi(value);
+    if (v != 0 && v != 1) {
+      Serial.print("[GCS] SET:REPEAT rejected, expected 0 or 1, got ");
+      Serial.println(value);
       return false;
     }
     return true;

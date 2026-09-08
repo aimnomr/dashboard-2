@@ -97,8 +97,19 @@
  * 3000 ms leaves ~1.6 s of margin. Raise EJECT_ATTEMPTS or EJECT_RETRY_MS in the
  * ground station's Config.h and this must move with them.
  *
- * CHUTE_AUTO_REARM 0 restores the pre-061 behaviour: one drive per boot, and only
- * RESET:CHUTE clears the latch. The horn still returns to ARMED either way.
+ * CHUTE_AUTO_REARM is the POWER-ON DEFAULT for the release mode, not the decision:
+ *
+ *     1  MULTI   the drive latch expires, repeat releases can be commanded
+ *     0  SINGLE  one drive per boot; only RESET:CHUTE clears the latch (pre-061)
+ *
+ * SET:REPEAT:0|1 moves it at runtime, so a sealed unit can be switched either way
+ * without opening it. A reboot forgets the override and returns to this value — the
+ * same rule the apogee config follows, and the safe direction when the default is 0.
+ *
+ * The horn returns to ARMED after CHUTE_HOLD_MS in BOTH modes. The mode decides only
+ * whether the latch expires, never whether the mechanism resets.
+ *
+ * ⚠ Governs the COMMANDED path only. Auto-eject is one-shot per boot in both modes.
  * ----------------------------------------------------------------------- */
 #define CHUTE_AUTO_REARM        1
 #define CHUTE_REARM_MS          3000
@@ -228,12 +239,19 @@
 #define I2C_SDA           1        /* BME280 + MPU6050 share TwoWire(1) */
 #define I2C_SCL           2
 
-/* These two were the wrong way round until 2026-08-19 — the classic TX-to-TX wiring
- * fault, and the actual cause of `chars=0`. Entry 026 concluded the module was
- * unpowered; it was not, it was talking into a pin that was also transmitting.
- * GPS_RX is the ESP32's RX pin and connects to the module's TX. */
-#define GPS_RX            19
-#define GPS_TX            20
+/* GPS_RX is the ESP32's RX pin and connects to the module's TX. That MEANING has
+ * never changed; only the pin numbers have, and they have now changed twice.
+ *
+ *   until 2026-08-19   RX 20 / TX 19   wrong for the board of the day — the classic
+ *                                      TX-to-TX fault, and the real cause of chars=0
+ *   2026-08-19 (042)   RX 19 / TX 20   correct for that board
+ *   2026-09-07 (062)   RX 20 / TX 19   the new PCB routes the pair the other way
+ *
+ * ⚠ The numbers below are back at their pre-042 values, and they are NOT a revert.
+ * Devlog 042 was right about the board it was written for. Reading it now, out of
+ * order, looks like this change undoes it — see 062 before "fixing" this again. */
+#define GPS_RX            20
+#define GPS_TX            19
 
 #define SD_CS             4        /* HSPI */
 #define SD_SCK            5

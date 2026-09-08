@@ -46,6 +46,7 @@ python -m devtools.send_command SET:DROP:15.0   # 2.0–100.0
 python -m devtools.send_command SET:ARM:50.0    # 5.0–200.0
 python -m devtools.send_command SET:CYCLES:2    # 1–10
 python -m devtools.send_command SET:AUTO:0      # 0|1 — the cancel
+python -m devtools.send_command SET:REPEAT:1    # 0|1 — 1 MULTI release, 0 SINGLE
 python -m devtools.send_command RESET           # re-bases the trigger, does NOT cancel
 python -m devtools.send_command RESET:CHUTE     # ⚠ makes a FIRED chute fireable again
 ```

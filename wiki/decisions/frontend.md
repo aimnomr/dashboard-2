@@ -164,13 +164,16 @@ It fires a parachute. Requirements:
   release on a vehicle that has already fired once. Even that rise means the mechanism was
   driven, never that a canopy opened: no sensor in this system can report deployment. Showing
   "deployed" on button press would be a lie the operator may act on.
-- **Repeat releases are now a supported operation (devlog 061)** and the panel does not
-  implement them. The vehicle returns its mechanism to ARMED and clears its drive latch after
-  `CHUTE_REARM_MS`, and the ground station accepts a second `EJECT` after `EJECT_REARM_MS`, but
-  `EjectPanel` replaces the Arm and Eject controls with a banner as soon as `chute > 0` and
-  never restores them — `chute` is monotonic. The CLI is the only route to a second release.
-  **Open decision**, not an oversight: restoring a parachute control after a release needs its
-  own arming shape, and it has not been designed.
+- **Repeat releases are supported end to end (devlog 061, 063).** The vehicle returns its
+  mechanism to ARMED and clears its drive latch after `CHUTE_REARM_MS`, the ground station
+  accepts a second `EJECT` after `EJECT_REARM_MS`, and the panel shows the banner *and* the
+  controls, disabling Eject for a matching cooldown that counts down on the button. The
+  arming step is required for every shot, including repeats — a second release is not
+  cheaper to fire than the first.
+- **Auto-eject is deliberately not repeatable.** The descent condition stays true for the
+  whole descent, so without `autoEjectFired` the mechanism would be driven every cycle for
+  the length of the fall. Making that path repeat needs a re-arm *condition* — another climb
+  past `armAltM` — not a removed latch. Not designed.
 - `ISS-02` — the ground unit firmware that receives this command does not exist yet, so the path
   cannot be tested end to end against hardware. It can be exercised against the mock server.
 
