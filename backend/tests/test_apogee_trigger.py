@@ -15,10 +15,15 @@ Auto-eject has still never fired on hardware. Nothing here is evidence that it w
 Mirrors, and where they live:
 
     AUTO_EJECT_ARM_ALT_M   30.0   Config.h
-    AUTO_EJECT_DROP_M      10.0   Config.h
-    AUTO_EJECT_CONFIRM_N   3      Config.h   (SAMPLES since devlog 071, not cycles)
+    AUTO_EJECT_DROP_M       2.0   Config.h   flight value, restored in 076
+    AUTO_EJECT_CONFIRM_N   3      Config.h   flight value, restored in 074
     AUTO_EJECT_SAMPLE_MS   125    Config.h
     ALT_ZERO_MIN_M/-MAX_M  -500 / 5000
+
+The compiled config is FLIGHT configuration again as of devlog 076, after the bench run
+that 073-075 existed to enable. The rule tests below still pin their own thresholds
+through rule() — a rule test that follows whatever is in Config.h stops describing
+anything the moment someone sets a bench value, which happened three times in one day.
 """
 
 from __future__ import annotations
@@ -60,13 +65,98 @@ ALT_ZERO_MAX_M = firmware_number("ALT_ZERO_MAX_M")
 NAN = float("nan")
 
 
-def test_the_flown_defaults_are_what_this_file_models():
-    """If these move, every expectation below is describing a vehicle nobody is flying."""
-    assert ARM_ALT_M == 30.0
-    assert DROP_M == 10.0
+#: Flight-intent values, argued for in devlogs 071 and 072. NOT what is compiled right
+#: now — see the bench-config tests below. The rule tests use these explicitly, because
+#: a rule test that silently follows whatever is in Config.h stops describing anything
+#: the moment someone sets a bench value, which is exactly what happened in 073.
+FLIGHT_DROP_M = 2.0
+FLIGHT_CONFIRM_N = 3
+
+
+def rule(*, confirm_n: int = FLIGHT_CONFIRM_N, drop_m: float = 10.0, **kw) -> "Trigger":
+    """A trigger with EXPLICIT thresholds, for testing the rule itself."""
+    return Trigger(confirm_n=confirm_n, drop_m=drop_m, **kw)
+
+
+def test_the_compiled_config_is_flight_configuration():
+    """The vehicle is at flight values (devlog 076), and this is what they are.
+
+    073 through 075 walked DROP down to bench sensitivity so the chain could be
+    exercised on a desk. 076 put it back. If this test starts failing, someone is at a
+    bench again — check the boot banner is still guarding it.
+    """
+    assert DROP_M == 2.0, "flight value - 071/072 argue for it"
     assert CONFIRM_N == 3
+    assert ARM_ALT_M == 30.0, "the pad interlock, never moved"
     assert SAMPLE_MS == 125
     assert (ALT_ZERO_MIN_M, ALT_ZERO_MAX_M) == (-500.0, 5000.0)
+
+
+def test_the_boot_banner_is_silent_at_flight_configuration():
+    """The inverse of what 073-075 pinned: no NOT FLIGHT SAFE banner when flying.
+
+    A banner that never goes quiet is a banner nobody reads.
+    """
+    flight_drop = firmware_number("AUTO_EJECT_FLIGHT_DROP_M")
+    flight_n = int(firmware_number("AUTO_EJECT_FLIGHT_CONFIRM_N"))
+    assert not ((DROP_M < flight_drop) or (CONFIRM_N < flight_n))
+
+
+#: Below this the running-maximum noise drift alone clears the threshold and the rule
+#: fires on a stationary unit. Derived, not chosen: BME280 pressure noise is ~0.11 m RMS
+#: at 16x oversampling with FILTER_OFF, and E[max of n samples] = sigma*sqrt(2*ln n),
+#: which is ~0.30 m after 40 samples — 5 s at AUTO_EJECT_SAMPLE_MS.
+USABLE_DROP_FLOOR_M = 0.5
+
+
+def test_drop_is_at_or_above_the_usable_noise_floor():
+    """074 went under this deliberately and predicted self-triggering. 075 came back up,
+    and 076 restored the flight value well clear of it.
+
+    apogeeBegin() prints a second, louder banner below this value.
+    """
+    assert DROP_M >= USABLE_DROP_FLOOR_M
+
+
+def test_set_cannot_reach_an_unusable_threshold():
+    """A mistyped SET:DROP cannot reach a threshold the barometer cannot support.
+
+    The bound walked 2.0 -> 1.0 -> 0.2 -> 0.5 across 073-075 to make the desk test
+    reachable, and 078 put it back to 2.0 once that test was done. Asserted as an
+    INEQUALITY against the derived floor rather than as equality against whatever it
+    happens to be: the safeguard is "never below the noise floor", and pinning the exact
+    value is what made this test need rewriting on three of those four moves.
+    """
+    assert firmware_number("AUTO_EJECT_DROP_MIN_M") >= USABLE_DROP_FLOOR_M
+
+
+def test_the_bounds_are_back_to_the_full_flight_envelope():
+    """078. The desk test is no longer reachable over the uplink, which is the point.
+
+    SET:ARM:0.5 and SET:DROP under 2.0 are both refused again — at the ground station
+    before transmission, and at the vehicle as defence in depth. Another bench session
+    needs these files edited rather than three SET commands.
+    """
+    assert firmware_number("AUTO_EJECT_DROP_MIN_M") == 2.0
+    assert firmware_number("AUTO_EJECT_ARM_MIN_M") == 5.0
+
+
+def test_the_flight_intent_constants_match_what_the_devlogs_argued():
+    """071 and 072 argued for 2.0 m over 3 samples. The firmware now states that."""
+    assert firmware_number("AUTO_EJECT_FLIGHT_DROP_M") == FLIGHT_DROP_M
+    assert int(firmware_number("AUTO_EJECT_FLIGHT_CONFIRM_N")) == FLIGHT_CONFIRM_N
+
+
+def test_the_flight_configuration_still_costs_what_072_claimed():
+    """The 071/072 arithmetic, pinned against the FLIGHT values rather than the bench.
+
+    Pre-071 the rule needed 10 m held for 2 s. The flight intent is 2 m held for
+    250 ms — a 5x smaller threshold over an 8x shorter window.
+    """
+    window_ms = (FLIGHT_CONFIRM_N - 1) * SAMPLE_MS
+    assert window_ms == 250
+    assert (10.0 / FLIGHT_DROP_M) == 5.0
+    assert (2000 / window_ms) == 8.0
 
 
 class Trigger:
@@ -126,7 +216,7 @@ def test_an_armed_vehicle_reading_nan_does_not_deploy():
     directions: `drop < dropM` false meant `descentCycles` was never reset, so it climbed
     to confirmN and deployed the vehicle wherever it happened to be.
     """
-    t = Trigger()
+    t = rule()
     t.update(50.0)                      # climb, arm
     assert t.armed
 
@@ -139,7 +229,7 @@ def test_an_armed_vehicle_reading_nan_does_not_deploy():
 
 def test_a_nan_holds_state_rather_than_resetting_it():
     """"Reject the sample and hold" - a descent in progress is not derailed by a glitch."""
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     t.update(88.0)                      # drop 12 >= 10, sample 1
     assert t.descent_samples == 1
@@ -177,7 +267,7 @@ def test_a_permanently_failed_sensor_leaves_the_trigger_inert():
     A barometer that never comes back means the rule never advances again. It will not
     fire wrongly and it will not fire at all - the uplink is the backup for that case.
     """
-    t = Trigger()
+    t = rule()
     t.update(200.0)
     t.update(150.0)                     # a real descent had begun
     assert t.descent_samples == 1
@@ -194,12 +284,12 @@ def test_a_permanently_failed_sensor_leaves_the_trigger_inert():
 # ---------------------------------------------------------------------------
 
 def test_it_fires_on_the_nth_qualifying_sample_not_after_n():
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     assert t.update(85.0) is False      # 1
     assert t.update(84.0) is False      # 2
     assert t.update(83.0) is True       # 3 - fires
-    assert t.descent_samples == CONFIRM_N
+    assert t.descent_samples == t.confirm_n
 
 
 def test_drop_is_cumulative_from_apogee_not_per_sample():
@@ -209,7 +299,7 @@ def test_drop_is_cumulative_from_apogee_not_per_sample():
     the counter by one, exactly as falling 10 m would. The counter counts samples, never
     multiples of dropM.
     """
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     t.update(80.0)                      # fell 20 m at once - drop 20
     assert t.descent_samples == 1, "a 2x drop must not count as two confirmations"
@@ -222,7 +312,7 @@ def test_once_the_threshold_is_passed_it_stays_passed():
     property because it is the reason the reset branch is effectively dead in a genuine
     fall - the filtering it buys is against a single glitch, not a sustained one.
     """
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     drops = []
     for alt in (85.0, 80.0, 75.0):
@@ -232,11 +322,20 @@ def test_once_the_threshold_is_passed_it_stays_passed():
 
 
 def test_a_non_qualifying_sample_resets_the_count():
-    t = Trigger()
-    t.update(100.0)
-    t.update(85.0)
+    """Expressed against the trigger's OWN threshold, not a number that once worked.
+
+    Written first with literals tuned to a 10 m threshold, it broke the day the default
+    became 2 m — its "non-qualifying" sample had quietly become a qualifying one — and
+    again when the bench config landed. Relative to t.drop_m now, so neither can happen.
+    """
+    apogee = 100.0
+    t = rule()
+    t.update(apogee)
+
+    t.update(apogee - t.drop_m - 1.0)   # comfortably past the threshold
     assert t.descent_samples == 1
-    t.update(95.0)                      # drop 5 < 10
+
+    t.update(apogee - t.drop_m + 0.5)   # back inside it
     assert t.descent_samples == 0
 
 
@@ -249,7 +348,7 @@ def test_it_cannot_arm_below_the_floor_however_far_it_dips():
 
 
 def test_it_is_one_shot():
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     t.update(85.0)
     t.update(84.0)
@@ -259,7 +358,7 @@ def test_it_is_one_shot():
 
 
 def test_a_commanded_release_stops_the_trigger_claiming_it():
-    t = Trigger()
+    t = rule()
     t.update(100.0)
     t.chute_is_fired = True             # the ground got there first
     for alt in (85.0, 84.0, 83.0, 82.0):
@@ -270,14 +369,9 @@ def test_a_commanded_release_stops_the_trigger_claiming_it():
 # devlog 071 — what the faster sampling actually buys
 # ---------------------------------------------------------------------------
 
-def test_three_confirmations_now_cost_250ms_not_2000ms():
-    """The point of decoupling the trigger from the telemetry cadence.
-
-    confirmN is unchanged at 3 - the confidence is the same three independent
-    conversions it always was. Only the clock changed.
-    """
+def test_three_confirmations_cost_250ms():
+    """The whole point of 071: confirmN is unchanged at 3 and now costs 250 ms, not 2 s."""
     assert (CONFIRM_N - 1) * SAMPLE_MS == 250
-    assert (CONFIRM_N - 1) * 1000 == 2000, "what it used to cost, for the record"
 
 
 def test_the_sample_interval_clears_the_barometer_conversion_time():

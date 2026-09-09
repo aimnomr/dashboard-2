@@ -1,170 +1,152 @@
 # Status
 
-**Updated** 2026-09-07 · end of session 8
+**Updated** 2026-09-10 · end of session 9
 
 ## Now
 
-**The repeat release works on hardware, and the bench log that proved it contains three
-other faults plus a latent one.** None of the four is fixed. Session 8 built the SINGLE/MULTI
-release path end to end (060–064) and then spent its last stretch reading the logs that path
-produced (065), which is where the faults came from.
+**Auto-eject fired on hardware for the first time, and all four faults from devlog 065 are
+closed in code.** Eight sessions of "never tested" ended in
+`logs/raw/20260910-032536-serial.log`: three automatic releases, each with `chute` rising
+and `ul` unchanged, plus hardware confirmation of both 067 and 070 in the same log.
 
-Branch **`feature/apogee-trigger`**, seven commits ahead of `main` (`72c9768`):
+Branch **`feature/dashboard-update`**, 15 commits ahead of `main` (`72c9768`, 2026-08-26 —
+`main` has not moved in two weeks).
 
-```
-4276712  Return the release mechanism on a timer, and re-arm both ends   (061)
-333468e  Changed config word                                            (060)
-a57c2b0  Fix the eject re-arm, and render the chute as a count          (058, 059)
-b72de9e  Fix the CHUTE_PIN divergence and audit the command reference   (057)
-fdecc00  Add a numeric packet readout, fed by the backend's field table (056)
-d4235a6  Add COMMANDS.md, a full command reference                      (054)
-089d0b9  Add GEN4: auto-eject trigger configurable over the uplink      (053)
-```
+**A toolchain now exists.** The ground station in that log carries
+`[GCS] build Sep 10 2026 03:23:50`, so firmware in this repo has been compiled and flashed
+for the first time. **CLAUDE.md's first trap — "`arduino-cli` is not installed, no firmware
+change has ever been compiled here" — is retired.** Corrected there this session.
 
-**062, 063, 064 and 065 are uncommitted** — 23 modified files (this one included) and 4
-untracked devlogs.
-
-### What was confirmed on hardware this session
+### What was confirmed on hardware
 
 ```
-EJECT            -> servo threw, chute 0->3                    ✓
-EJECT again      -> confirmed after 2 attempts, chute 3->4     ✓   (061/063/064 work)
-PING             -> ul rose                                    ✓
-EJECT (2 of 4)   -> "burst complete", never confirmed          ✗   fault 1
-EJECT (1 of 4)   -> "confirmed after 0 attempts", nothing sent  ✗   fault 1
-auto-eject       -> never reached; the vehicle cannot arm      ✗   fault 3
+seq=54   chute 0->1   ul 6->6    AUTO-EJECT, apogee 1.7 m, released at 0.6 m
+seq=19   chute 0->1   ul 4->4    AUTO-EJECT, apogee 1.9 m, released at 0.2 m
+seq=28   chute 0->1   ul 1->1    AUTO-EJECT
+seq=181  chute 1->2   ul 6->8    commanded - chute +1 against ul +2, which is 067 working
+[GCS] EJECT confirmed, chute 0 -> 2                       070 working
+[GCS] vehicle restarted - ... pending EJECT confirmation cleared    070's reboot handler
 ```
 
-The repeat release is real and it is the headline: 061 through 064 do what they were built to
-do. Everything else on that list is 065.
+⚠ **Read 079 before calling it tested.** It fired **by hand, at bench thresholds**
+(`ARM 0.5 / DROP 0.5`), on a descent roughly thirty times slower than a real one. The
+flight configuration has never been flashed or run.
 
-### Session 8, by entry
+### Session 9, by entry
 
-**060** the GEN4 sync word moved off `0xAB` — committed directly as `333468e`, recorded after
-the fact. **061** the mechanism returns to ARMED on a timer and the fire latch clears on a
-second, longer one; `chuteFire()` stopped blocking and one flag became three. **062** GPS
-`RX`/`TX` back to 20/19 for the new PCB — *not* a revert of 042; the hardware moved. **063**
-the dashboard can command a repeat release: the banner and controls coexist, and a cooldown
-replaced the latch. **064** `SET:REPEAT:0|1`, SINGLE and MULTI switchable from the ground,
-with auto-eject deliberately excluded from the re-arm. **065** the four faults below.
+**066** the day's logs re-read: the GPS *does* reach a fix (1,925 packets, HDOP 0.7, 19
+sats), which contradicts the ISS-14 rewrite committed the same day — and session
+`20260909-011251` turns out to carry **two flight units on one channel** with no identifier
+in the packet to separate them. **067** `chute` counts releases, not packets. **068** the
+eject control and the attitude reliability signalling both left the dashboard. **069** the
+release fires on receipt rather than at window close, and the sensor-read gap stopped
+dropping commands. **070** EJECT confirmation moved to `radioPoll()`, closing 065 fault 1.
+**071** the trigger got its own 8 Hz clock and an `isfinite` guard, closing fault 4, and
+`baseAltitude` got a plausibility band, closing fault 3's code half. **072–076, 078** the
+drop threshold walked 2.0 → 1.0 → 0.2 → 0.5 → 2.0 and the `SET` bounds went down and back.
+**077, 078** the pose model became a three-finned rocket. **079** the bench log, read.
 
 ## Next
 
-0. **Fix the barometer. Nothing about auto-eject is testable until it reads.** The BME280 on
-   the current flight unit returns 180.77 °C, humidity pinned at 100 %, and pressure at −164
-   and +1238 hPa. It failed mid-run, the vehicle restarted, and `baseAltitude` was captured
-   during the corruption — so `alt` now sits at about **−1740 m** with correct pressure
-   beside it, and 5 packets in 43 still read `-nan`. Check the I²C wiring on `SDA 1 / SCL 2`,
-   power-cycle flat and still, and confirm `alt` reads ~0.0 with no NaN across a couple of
-   minutes **before believing any auto-eject result.** (065 fault 3.)
-1. **`fireEjectBurst()` leaves a stale baseline when the burst runs out of attempts, and the
-   next EJECT is then silently swallowed.** The log ends with the ground station in exactly
-   that state: `chuteBaseline` 4, `lastChute` 7, `ejectConfirmed` false. Two of three real
-   bursts ended this way, so it is the common case, not the edge. Fix needs the SINGLE/MULTI
-   interaction from 064 thought through first. (065 fault 1, and the third appearance of the
-   absolute-test bug after 058 and 063.)
-2. **A NaN altitude fires the trigger rather than disarming it.** `drop < cfg.dropM` is false
-   for NaN, so `descentCycles` is never reset and increments to `confirmN`. An already-armed
-   vehicle that starts reading NaN deploys wherever it is. It cannot arm *from* NaN, so the
-   pad is safe. Rejecting non-finite `alt` in `apogeeUpdate()` and sanity-banding
-   `baseAltitude` are both new trigger behaviour — a decision, not a patch. (065 fault 4.)
-3. **`chute` undercounts in the front listen window.** `radioListenForEject()` returns a bool,
-   so two EJECTs in one 400 ms window increment `ul` twice and `chute` once; the back-half
-   hold counts per packet. Observed as `chute +1, ul +2`. Return a count instead — one line
-   each side. `COMMANDS.md:304` is wrong until it is fixed. (065 fault 2.)
-4. **Auto-eject has still never been tested.** Sixth session running. It needs no reflash and
-   the vehicle firmware is believed correct, but it is now blocked on 0 and should be
-   reconsidered against 2 first. `SET:ARM:5.0`, `SET:DROP:2.0`, `SET:CYCLES:1`, then a
-   stairwell; re-arm between runs with `RESET:CHUTE`, never plain `RESET`. Expect `chute`
-   rising with **`ul` unchanged** — that pair is the only ground-side proof a release was
-   automatic.
-5. **`AUTO_EJECT_CONFIRM_N` still needs a real descent rate.** Three cycles is three seconds;
-   at 30 m/s that is 90 m. Unchanged since session 5 and unanswerable until something falls.
-6. **Nothing pins the apogee state machine.** Sessions 5, 7 and now 8 each found real errors
-   in it without a committed test — the RESET re-arming behaviour, the eject latch
-   interaction, and now the NaN path. That is three times. The trace should be committed.
-7. **`backend/devtools/mock_source.py` still emits GEN2** — no `$MRC`, no CRC. It cannot
-   exercise auto-eject, GEN4, or the packet readout. Fourth session running.
-8. **`ISS-13` link quality** — unchanged, still the largest open problem.
-9. **`az` reads ~0.92 g at rest.** Check `MPU_ACCEL_RANGE` against `MPU_ACCEL_SCALE`.
-10. **The gyro emits single-sample spikes** of 70–190 deg/s while stationary.
-11. **The pose model has still never been checked in a browser.**
-12. **No dashboard UI for the GEN4 commands** — `send_command` remains the only path, and
-    064 made that gap wider: the panel cannot set the release mode and cannot see it.
-13. **No wiki page for the GEN4 uplink grammar**, and **`wiki/issues.md` is behind on
-    sessions 4 to 8.** `wiki/decisions/frontend.md:60` was corrected this session.
-14. Field-laptop dry run (`ISS-12`). Replace the placeholder cylinder in `cylinderMesh()`.
+0. **Flash both units and confirm the flight configuration runs.** Being done as this was
+   written; the result is not recorded. Expect on the flight unit: `altitude zeroed at X m
+   (attempt 1)`, **no** `NOT FLIGHT SAFE` banner, **zero** `cycle overran` lines across ten
+   minutes, and no return of the `20260909-024620` signature (humidity pinned at 100, all
+   six MPU axes exactly `0.000`) now that I²C traffic is roughly tripled by 071. **Restart
+   the backend too** — `api.py`'s bounds changed and it is Python, not firmware.
+1. **Auto-eject has never run at flight thresholds.** 079 was `ARM 0.5 / DROP 0.5` at
+   walking pace. `ARM 30 / DROP 2.0` needs real altitude, which needs a stairwell or a
+   flight, and **the desk test is no longer reachable over the uplink** — 078 put the
+   bounds back, so `SET:ARM:0.5` is refused at both ends. Another bench run means editing
+   `MRC_FlightUnit_GEN4/Config.h`, `MRC_GroundStation_GEN4/Config.h` and `api.py` together.
+   0.5 m is the floor when that day comes; below it the barometer's running-maximum drift
+   alone fires the rule (074, 075).
+2. **`ISS-14` should be re-examined and probably closed.** 066 found the GPS reaching valid
+   fixes in six sessions — real coordinates, HDOP down to 0.7, up to 19 satellites. The
+   issue's own 2026-09-09 rewrite says "not one valid fix", and that claim is not supported
+   by the full set of logs.
+3. **Two vehicles on one channel needs an issue of its own.** Next free is `ISS-19`. The
+   packet carries no vehicle identifier, so a second unit on `919.0 / 0xAA / MRC` is merged
+   into one timeline — `alt`, `chute` and `ul` included. It also puts a hole in "`chute`
+   rising with `ul` unchanged proves automatic", which assumes both fields came from the
+   same vehicle.
+4. **`wiki/issues.md` is behind sessions 4 to 9**, and `ISS-17`/`ISS-18` from session 7 were
+   never entered at all. Nothing from 066–079 is in it.
+5. **`AUTO_EJECT_CONFIRM_N` still has no real descent rate behind it.** Three samples is
+   250 ms now rather than 2 s, so it costs far less than it did — but the 14–16 m figure in
+   072 is drag-free arithmetic and nothing has fallen.
+6. **`backend/devtools/mock_source.py` still emits GEN2** — no `$MRC`, no CRC. Fifth
+   session. It cannot exercise auto-eject, GEN4 or the packet readout.
+7. **`ISS-13` link quality.** The 2026-09-10 log has 15 consecutive `RX error code -7` and
+   two `SET:ARM` bursts that failed with `ul did not rise` while `ul` was demonstrably
+   moving. Still the largest open problem.
+8. **The pose model has still never been checked in a browser**, and 077 just replaced the
+   mesh — so this matters more than it did. 038, 041 and 045 were each a rendering fault
+   found on hardware rather than in a test, and the camera alone has shipped three sign
+   errors. `npm run dev` and look at it.
+9. **No dashboard UI for the GEN4 commands.** 068 widened this deliberately: the dashboard
+   now sends `PING` and nothing else. Decide whether that is the flight shape, and if so
+   put "who holds the terminal with EJECT" on the pre-launch checklist.
+10. **No wiki page for the GEN4 uplink grammar.**
+11. `az` and the gyro spikes — unexamined this session. Field laptop dry run (`ISS-12`).
+12. **The GEN4 flight sketch still prints `GEN3`** on boot and on the OLED.
 
 ## Blocked
 
-- **The BME280 on the current flight unit.** Hardware. Blocks Next 4 outright.
-- `ISS-13` — frequency coordination. Needs a clear frequency, not code.
+- `ISS-13` — frequency coordination. Needs a clear frequency, not code. Now with an
+  in-house instance: two of our own units were on one channel.
 - `ISS-06` — competition requirements unknown; `wiki/source/competition/` still empty.
 - `ISS-12` — field laptop not provisioned or dry-run.
-- **OLED dead on the current flight unit.** `AUTO x1` vs `CMD x1` is invisible until the SD
-  card is read, on both generations.
+- **OLED dead on the current flight unit.**
 
 ## New this session
 
-*None of these are in `wiki/issues.md` yet. `ISS-17` and `ISS-18` were session 7's.*
+*None of these are in `wiki/issues.md`.*
 
-**Fault 1 · an unconfirmed EJECT burst poisons the next one.** `fireEjectBurst()` has two
-exits and only one records anything. On the early exit it sets `ejectConfirmed` and
-`ejectConfirmedMs`; on the run-out-of-attempts exit it records nothing at all — not even that
-a burst was sent — so `chuteBaseline` is left at a value `lastChute` has already passed. The
-next EJECT skips the re-arm block (it is gated on `ejectConfirmed`), reaches
-`lastChute > chuteBaseline` on its first iteration, prints `EJECT confirmed after 0
-attempt(s)` and transmits nothing. The burst blocks ~1.4 s and eats the very packets that
-would have confirmed it, so this is the ordinary outcome rather than a rare one.
+**Two vehicles on one channel.** `20260909-011251` interleaves two independent streams
+packet by packet — two sequence counters, two uptimes ~60 s apart, both at 1 Hz, distinct
+RSSI. One had a 14-satellite fix, the other none. See Next 3.
 
-**Fault 2 · `chute` means two different things depending on where the packet landed.**
-`radioListenForEject()` collapses a whole 400 ms window into one bool; `holdUntilListening()`
-counts per packet. Burst spacing (~351 ms) is under the window width by construction.
+**The `EJECT confirmed, chute X -> Y` line can read as two releases.** In 079's log it
+printed `chute 0 -> 2` because the baseline was 0 while an automatic release had already
+moved the counter to 1. Both numbers are true; the message invites misreading. The `X -> Y`
+form was chosen in 070 because attempt counts stopped being knowable.
 
-**Fault 3 · BME280 failure, and `baseAltitude` captured during it.** `t.pres` and `t.alt` are
-separate I²C transactions (`Sensors.ino:231`, `:233`), which is why a packet can carry a sane
-pressure beside an altitude wrong by 1.7 km. `baseAltitude` is read once at `Sensors.ino:126`
-with no plausibility check and no re-read.
-
-**Fault 4 · no `isnan`/`isfinite` guard exists anywhere in the flight firmware**, and the
-apogee rule reads NaN comparisons in two opposite directions — it cannot arm, but once armed
-it counts to `confirmN` and fires.
+**`SET` bursts failed twice while `ul` was rising.** Link quality, but worth knowing the
+failure mode looks like a vehicle that cannot hear.
 
 ## Deferred by decision
 
-- **A GEN3.2 packet bump for auto-eject visibility** — declined 2026-08-26, twice, and
-  reaffirmed by 064. With `ul > 0` the ground cannot distinguish an automatic release from a
-  commanded one; only `chute` rising with `ul = 0` proves auto. The SD `#` config lines
-  (now carrying `repeat=`) stay the only truthful record of vehicle config.
-- **2 Hz telemetry** — rejected (036). **Packing existing fields** — rejected 2026-08-20.
-- **`vb` battery and `st` status bitmask** — deferred; `vb` is gated on hardware.
-- **Ground station SD logging** — declined, it stays a pure pass-through.
-- **Auto-eject stays one-shot per boot in both release modes** — settled in 064. Repeating it
-  safely needs a re-arm *condition* (a fresh climb through `armAltM`), not an expiring latch;
-  the descent condition stays true for the whole fall.
-- **The bench servo pin stays at 18** while `CHUTE_PIN` is 3. Different chip, different board,
-  documented at `ServoEjectTest.ino:27`.
-- `ISS-15` SQLite — same stream as the raw log, dies with the same laptop.
+- **A GEN3.2 packet bump** — declined three times now (2026-08-26 twice, reaffirmed by
+  064). 066 raised a new argument for it — a vehicle identifier — which is a *different*
+  ground and has not been heard.
+- **A FreeRTOS task for the trigger** — declined in 071. The barometer is the rate limit at
+  ~10 Hz, not the CPU, so a second core would sample no faster while adding an I²C mutex
+  and making `chuteFire()` reentrant.
+- **`FILTER_X16` on the BME280** — would cut pressure noise fourfold and make a 0.2 m
+  threshold viable, at ~3.75 s of settling lag. Bench-only if ever.
+- **2 Hz telemetry** — rejected (036). 071 is not that: telemetry stayed at 1 Hz.
+- **`vb` battery and `st` status bitmask** — deferred. **Ground station SD logging** —
+  declined. **`ISS-15` SQLite** — same stream as the raw log.
 
 ## Notes for next session
 
-- **Tests were not run this session.** Last recorded, in 064: **154 backend, 107 frontend**,
-  plus `verify_gen3.py` 14/14. Session 8 after 064 was investigation only — no firmware,
-  backend or frontend edit was made, and `arduino-cli` is still not on this machine.
-- **The evidence for everything in 065 is `logs/raw/20260907-195122-serial.log` and
-  `20260907-195326-serial.log`.** `logs/` is gitignored, so those two files are the only copy
-  and they are not backed up. Consider keeping them before the directory is cleared.
-- **The ground station is still running the `Sep  7 2026 19:48:44` build**, and it was not
-  restarted between the two dashboard runs — which is *why* fault 1 was visible across them.
-  The `[GCS] build` stamp from session 7 earned its place here.
-- **`chute` reaching 7 in that log is not seven releases.** One operator EJECT moved it by 3.
-  The counter means "eject packets received", modulo fault 2.
-- **The GEN4 flight sketch still prints `MRC Flight Unit GEN3 booting`** and shows
-  `MRC FLIGHT GEN3` on the OLED. Cosmetic, at `MRC_FlightUnit_GEN4.ino:109,116,142`, and
-  actively confusing while debugging a flash. A vehicle reflash for a banner.
-- **A build stamp exists on the ground station only.** The flight unit still has none — and
-  this session it would have answered whether the vehicle restart was a brownout or a reflash.
-- **Auto-eject bounds now live in five places** — `api.py`, the GEN4 ground station, the GEN4
-  vehicle, `COMMANDS.md`, and `COMMANDS-QUICK.md`. `EJECT_REARM_MS`/`CHUTE_REARM_MS` is a
-  sixth pair, and `lib/link.ts` a third copy of that one.
-- Devlogs 060–065 this session.
+- **Backend 190 (+1 strict `xfail`), frontend 122, `verify_gen3.py` 14/14.** All passing.
+  The `xfail` is deliberate and strict: `chute` cannot say *why* it rose, so an auto-eject
+  release is indistinguishable from a commanded one. If it ever starts passing, someone
+  fixed it.
+- **Two committed models now exist** where there were none: `test_eject_state_machine.py`
+  and `test_apogee_trigger.py`. They are MODELS of firmware, not the firmware, and their
+  docstrings say so. `status.md` Next 6 asked for the apogee one for three sessions.
+- **A test that encodes a value rather than the reason for it broke three times today**
+  (072, 075, 078). The rule that came out of it: *a constant belongs in the assertion only
+  when changing it should fail the test.* `USABLE_DROP_FLOOR_M` is derived from sensor
+  noise in one place and everything else refers to it.
+- **072–079 are uncommitted** — 8 devlog entries and 11 modified files.
+- **Flight configuration, for reference:** `ARM` 30 m · `DROP` 2.0 m · `CYCLES` 3 samples ·
+  `SAMPLE_MS` 125. Bounds `DROP` 2.0–100, `ARM` 5.0–200, `CYCLES` 1–10.
+- **`logs/raw/20260910-032536-serial.log` is the evidence for 079** and `logs/` is
+  gitignored. It is the only record that auto-eject has ever fired. Consider keeping it.
+- Three commits on this branch are not project work — `c8a7a37` "Test file for gh desktop",
+  `5639788` and `ceb0864` (a create/delete pair). Squash candidates if `main` should read
+  cleanly; entirely optional.

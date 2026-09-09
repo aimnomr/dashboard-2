@@ -74,3 +74,11 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-09-09 · 069 · The release fires on receipt, and the gap before the transmit is no longer deaf
 - 2026-09-10 · 070 · EJECT confirmation moves to where the evidence arrives
 - 2026-09-10 · 071 · The trigger gets its own clock, and stops trusting a NaN
+- 2026-09-10 · 072 · The drop threshold goes to its floor, now that it means something
+- 2026-09-10 · 073 · Bench sensitivity, so the chain can be tested on a desk
+- 2026-09-10 · 074 · `DROP` goes to 0.2 m, which is below the noise floor
+- 2026-09-10 · 075 · `DROP` settles at 0.5 m, the usable floor
+- 2026-09-10 · 076 · Flight configuration restored after the bench run
+- 2026-09-10 · 077 · The pose model is a rocket, not a placeholder cylinder
+- 2026-09-10 · 078 · Three fins, and the SET bounds back to the full envelope
+- 2026-09-10 · 079 · Auto-eject fires on hardware, for the first time

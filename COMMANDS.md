@@ -217,7 +217,7 @@ python -m devtools.send_command RESET:CHUTE
 | `EJECT` | command a chute release | — |
 | `RESET` | re-base the auto-eject trigger. **Not a cancel** — `SET:AUTO:0` is | — |
 | `RESET:CHUTE` | the above, **plus clear the fire latch** — makes a fired chute fireable again, *immediately* | — |
-| `SET:DROP:<m>` | metres below peak before firing | 2.0 – 100.0 |
+| `SET:DROP:<m>` | metres below peak before firing. Default **2.0**, the flight value | 2.0 – 100.0 |
 | `SET:ARM:<m>` | altitude above boot before the trigger arms | 5.0 – 200.0 |
 | `SET:CYCLES:<n>` | consecutive confirming **samples** — 125 ms each since 2026-09-10, not 1 s | 1 – 10 |
 | `SET:AUTO:<0\|1>` | enable/disable auto-eject | 0 or 1 |
@@ -376,6 +376,42 @@ python -m devtools.send_command RESET:CHUTE
   the firmware's sampling settings takes ~113 ms worst case per conversion, so sampling
   faster would count one physical measurement as two confirmations. The rate is fixed at
   compile time and is deliberately not a `SET`.
+- **`DROP` now defaults to 2.0 m — its own floor** (devlog 072, was 10.0). It could not
+  usefully be lowered before 071: at one sample per second and a 20 m/s descent the first
+  post-apogee sample was already 20 m down, so every threshold under ~20 m fired on the
+  same sample and `DROP:10` and `DROP:2` were indistinguishable. At 125 ms a sample is
+  well under a metre of travel early in the fall, so the number finally means what it says.
+
+  Free fall from apogee, drag-free, `CYCLES:3`:
+
+  | `DROP` | detection | altitude lost | confirmation window |
+  |:--|:--|:--|:--|
+  | 10 m *(the old default)* | 1.7 – 1.8 s | 14 – 16 m | 250 ms |
+  | 5 m | 1.26 – 1.39 s | 8 – 9 m | 250 ms |
+  | **2 m** *(current)* | **0.89 – 1.01 s** | **4 – 5 m** | **250 ms** |
+
+  ⚠ **The 071 and 072 changes compound, and not in the safe direction.** The rule now
+  wants a **5× smaller drop held for an 8× shorter window** than the vehicle that flew
+  before them — 2 m over 250 ms, where it was 10 m over 2 s. Sensor noise alone cannot
+  span that (~0.11 m RMS at 16× pressure oversampling puts 2 m at ~18σ), but a real
+  pressure transient lasting 375 ms can: a gust, slipstream, a venting bay. The arming
+  floor still means it cannot fire below 30 m, so **the pad is safe** — the exposure is a
+  transient during ascent faking a 2 m dip below the highest altitude seen.
+
+  **If that shows up, raise `SET:CYCLES`, not `SET:DROP`.** `DROP` has no room left below
+  it, and `CYCLES` is settable at the pad with no reflash:
+
+  | `CYCLES` at `DROP:2` | window | detection | altitude lost |
+  |:--|:--|:--|:--|
+  | 3 *(current)* | 250 ms | 0.89 – 1.01 s | 4 – 5 m |
+  | 5 | 500 ms | 1.14 – 1.26 s | 6 – 8 m |
+  | 10 *(the ceiling)* | 1.125 s | 1.76 – 1.89 s | 15 – 17 m |
+
+  Even at the ceiling it is no worse than the old `DROP:10 / CYCLES:3`, and it carries
+  three times the evidence.
+- **GEN3 keeps `DROP` at 10.0 m, deliberately.** That vehicle samples once per second and
+  has no `SET`, so 2 m there would be the no-op described above with none of the ways to
+  correct it in flight. 10 m is the right default for a 1 Hz trigger.
 - **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
   BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
   cycle against a fresh apogee and fires again once it has dropped `DROP` from there.

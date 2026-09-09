@@ -152,11 +152,61 @@
  * right way round for a trigger whose cost is measured in metres of altitude — but if
  * the barometer proves noisy in flight, raise CONFIRM_N rather than lowering the rate.
  * At 8 Hz the ceiling of 10 is still only 1.25 s.
+ *
+ * AUTO_EJECT_DROP_M was 10.0 until 2026-09-10 and is now at its floor, 2.0 (devlog 072).
+ *
+ * ⚠ It could not usefully be lowered before 071. At one sample per second and a 20 m/s
+ * descent the first post-apogee sample is already 20 m down, so every threshold under
+ * ~20 m behaved identically — DROP:10 and DROP:2 fired on the same sample. At 125 ms a
+ * sample is well under a metre of travel early in the fall, so the threshold resolves and
+ * the number finally means what it says.
+ *
+ * ⚠ The two changes COMPOUND, and not in the safe direction. Against the pre-071 vehicle
+ * this trigger now needs a 5x smaller drop held for an 8x shorter window — 2 m over
+ * 250 ms, where it used to be 10 m over 2 s. Sensor noise alone will not do that (~0.11 m
+ * RMS at 16x pressure oversampling, so 2 m is ~18 sigma), but a real pressure disturbance
+ * lasting 375 ms will: a gust, slipstream, a venting payload bay. The rule cannot fire
+ * below AUTO_EJECT_ARM_ALT_M, so the pad is still safe — the exposure is a transient
+ * during ascent, above 30 m, faking a 2 m dip below the highest altitude seen.
+ *
+ * If the bench or the first flight shows that, RAISE CONFIRM_N rather than the threshold:
+ * SET:CYCLES is settable over the uplink at the pad and costs no reflash, and at 8 Hz the
+ * ceiling of 10 is still only 1.125 s. See the trade table in COMMANDS.md.
+ *
+ * FLIGHT CONFIGURATION, restored 2026-09-10 after the bench run (devlog 076).
+ *
+ *     ARM      30.0 m   pad interlock, never moved
+ *     DROP      2.0 m   argued for in 071/072: ~4-5 m of altitude lost in free fall
+ *     CYCLES    3       samples, so 250 ms of confirmation at AUTO_EJECT_SAMPLE_MS
+ *
+ * The BOUNDS below are back at 2.0 / 5.0 as well (devlog 078). 073-075 walked them down
+ * to 0.5 so the chain could be armed and fired by hand on a desk; with that done, the
+ * full envelope is restored and a mistyped SET:DROP is refused again.
+ *
+ * ⚠ THAT MEANS THE DESK TEST IS NO LONGER REACHABLE OVER THE UPLINK. SET:ARM:0.5 and
+ * SET:DROP below 2.0 are both rejected now, at the ground station before transmission
+ * and at the vehicle again. Another bench session needs these three mirrored files
+ * edited, not three SET commands — deliberately, because the bounds are the last thing
+ * standing between a typo and a threshold the barometer cannot support.
+ *
+ * For reference when that day comes: 0.5 m is the lowest threshold that can tell a
+ * descent from the barometer's noise at all — the running maximum drifts ~0.30 m upward
+ * in 5 s from noise alone, and below that the rule fires on a stationary unit. Derived
+ * in 074 and 075; do not go under it.
  */
+
+/* What a FLIGHT configuration looks like, so the boot banner can recognise one.
+ *
+ * Deliberately not tied to AUTO_EJECT_DROP_MIN_M: that is the lowest value SET will
+ * ACCEPT, and it has been lowered twice in one day to reach bench values. A banner
+ * anchored to it would go quiet the moment the floor moved again, which is precisely
+ * when it is most needed. These two are the intent, and they do not move for testing. */
+#define AUTO_EJECT_FLIGHT_DROP_M     2.0f
+#define AUTO_EJECT_FLIGHT_CONFIRM_N  3
 #define ENABLE_AUTO_EJECT       1
 #define AUTO_EJECT_ARM_ALT_M    30.0f  /* must climb past this before it can fire  */
-#define AUTO_EJECT_DROP_M       10.0f  /* apogee - alt that counts as descending   */
-#define AUTO_EJECT_CONFIRM_N    3      /* consecutive qualifying SAMPLES to fire   */
+#define AUTO_EJECT_DROP_M        2.0f  /* FLIGHT value - see devlogs 071, 072, 076 */
+#define AUTO_EJECT_CONFIRM_N    3      /* restored to flight value (074)           */
 
 /* How often the trigger takes its own altitude sample, independent of the 1 Hz
  * telemetry cadence. See devlog 071.

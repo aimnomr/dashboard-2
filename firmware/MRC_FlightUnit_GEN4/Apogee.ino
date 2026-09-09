@@ -154,6 +154,42 @@ void apogeeBegin() {
   autoEjectFired = false;
 
   apogeeReportConfig("auto-eject boot config");
+
+  /* ⚠ BENCH-SENSITIVITY BANNER. Added 2026-09-10 (devlog 073).
+   *
+   * A single qualifying sample, or a threshold at the floor, is a BENCH configuration:
+   * it exists so the whole chain can be exercised on a desk by lifting the unit and
+   * putting it down. It is not a flight configuration. CONFIRM_N 1 means there is no
+   * confirmation at all — one anomalous pressure reading drives the mechanism.
+   *
+   * There is no NVS, so what is compiled here is what a rebooted vehicle returns to.
+   * A brownout on the pad silently restores exactly these values, which is why this
+   * says so at every boot rather than trusting anyone to remember. */
+  if (cfg.dropM < AUTO_EJECT_FLIGHT_DROP_M ||
+      cfg.confirmN < AUTO_EJECT_FLIGHT_CONFIRM_N) {
+    Serial.println("[FLT] ****************************************************");
+    Serial.println("[FLT] ** AUTO-EJECT IS AT BENCH TEST SENSITIVITY        **");
+    Serial.print(  "[FLT] ** drop ");
+    Serial.print(cfg.dropM, 1);
+    Serial.print(" m over ");
+    Serial.print(cfg.confirmN);
+    Serial.print(" sample(s), flight wants ");
+    Serial.print(AUTO_EJECT_FLIGHT_DROP_M, 1);
+    Serial.print("/");
+    Serial.println(AUTO_EJECT_FLIGHT_CONFIRM_N);
+    Serial.println("[FLT] ** NOT FLIGHT SAFE - raise SET:DROP before flying  **");
+    Serial.println("[FLT] ****************************************************");
+
+    /* Below the sensor's own noise floor, which is a different and worse thing than
+     * merely sensitive: `drop` is measured against a running maximum that noise
+     * ratchets upward, so a stationary unit reads a drop of ~0.30 m after a few
+     * seconds. A threshold under that fires without anything descending. */
+    if (cfg.dropM < 0.5f) {
+      Serial.println("[FLT] ** drop is BELOW THE NOISE FLOOR - expect it to  **");
+      Serial.println("[FLT] ** self-trigger. SET:DROP:0.5 is the usable floor **");
+      Serial.println("[FLT] ****************************************************");
+    }
+  }
 }
 
 /* ---- the rule -------------------------------------------------------------- */

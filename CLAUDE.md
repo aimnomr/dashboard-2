@@ -117,9 +117,14 @@ reached by accident at the pad.
 
 ## Traps that have already cost time
 
-- **`arduino-cli` is not installed on Aiman's machine.** No firmware change in this repo
-  has ever been compiled here. Never report firmware as verified — write "not compiled
-  and not flashed", the way the devlog entries do.
+- **Firmware CAN now be compiled and flashed** — a toolchain arrived 2026-09-10, and the
+  ground station in `logs/raw/20260910-032536-serial.log` carries
+  `[GCS] build Sep 10 2026 03:23:50`. This trap previously read "`arduino-cli` is not
+  installed, no firmware change has ever been compiled here" and is retired.
+  **Devlogs 052-078 were all written under the old constraint and say "not compiled and
+  not flashed" — that was true when written.** Check the build stamp before assuming what
+  a unit is running, and keep saying what was actually verified rather than what was
+  edited.
 - **`chute` counts RELEASES PERFORMED — one per operator EJECT.** Changed 2026-09-09
   (devlog 067): the increment is gated on `chuteFire()`'s return, so a repeat landing
   inside the drive latch moves nothing. Before that it rose per packet received and one
@@ -147,8 +152,20 @@ reached by accident at the pad.
 
 ## State as of 2026-09-10
 
-Branch `feature/dashboard-update`. Devlogs run to **071**. Backend 184 (+1 strict
-`xfail`), frontend 121, both passing; `verify_gen3.py` 14/14.
+Branch `feature/dashboard-update`. Devlogs run to **079**. Backend 190 (+1 strict
+`xfail`), frontend 122, both passing; `verify_gen3.py` 14/14.
+
+**The flight unit is at FLIGHT configuration** (devlog 076): `ARM` 30 m, `DROP` 2.0 m,
+`CYCLES` 3 samples at `AUTO_EJECT_SAMPLE_MS` 125. Devlogs 073–075 walked those down to
+bench sensitivity so the chain could be exercised by hand on a desk; 076 put them back and
+`apogeeBegin()`'s NOT FLIGHT SAFE banner is silent again.
+
+The **bounds** are back to the full envelope too (078): `AUTO_EJECT_DROP_MIN_M` 2.0,
+`AUTO_EJECT_ARM_MIN_M` 5.0. ⚠ **The desk test is therefore no longer reachable over the
+uplink** — `SET:ARM:0.5` and `SET:DROP` under 2.0 are refused. Another bench session needs
+`MRC_FlightUnit_GEN4/Config.h`, `MRC_GroundStation_GEN4/Config.h` and `api.py` edited
+together. **0.5 m is the floor when that day comes** — below it the barometer's
+running-maximum noise drift alone fires the rule on a stationary unit (074, 075).
 
 **All four faults from devlog 065 are now closed in code:**
 
@@ -181,6 +198,11 @@ the apogee or eject paths, and before telling anyone the system is ready to fly.
 found two flight units transmitting on one channel** with no identifier in the packet to
 tell them apart — check that before trusting any field in a log.
 
-**Auto-eject has still never been tested on hardware.** Eighth session running — and it
-has now been substantially rewritten (071) without ever having fired once. That is the
-single largest untested thing in the project.
+**Auto-eject HAS now fired on hardware** — three automatic releases in
+`logs/raw/20260910-032536-serial.log`, each with `chute` rising and `ul` unchanged
+(devlog 079). 067 and 070 are both confirmed on hardware in the same log.
+
+⚠ But read 079 before treating it as tested. It fired **by hand, at bench thresholds**
+(`ARM 0.5 / DROP 0.5`), on a descent roughly thirty times slower than a real one. **The
+flight configuration — `ARM 30 / DROP 2.0` — has never been flashed or run**, and the
+1.7-1.8 s / 14-16 m figures from 071/072 are still arithmetic.

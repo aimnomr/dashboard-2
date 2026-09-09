@@ -3,9 +3,8 @@
  *
  * Hand-rolled rather than WebGL, deliberately. The Three.js attempt (devlog 013) was
  * reverted on practicality — a rendering dependency, a model pipeline and a placeholder
- * to maintain, for 733 kB against a 215 kB bundle. A CanSat is a cylinder, and an
- * orthographic projection of a cylinder is arithmetic. The objection was to the tool,
- * not to the idea.
+ * to maintain, for 733 kB against a 215 kB bundle. An orthographic projection of a few
+ * dozen flat faces is arithmetic. The objection was to the tool, not to the idea.
  *
  * Body frame matches the IMU as mounted: **+z runs along the can's long axis**, which is
  * why `az` reads ~1 g sitting upright on a bench. +x and +y complete a right-handed set
@@ -130,40 +129,98 @@ export function viewTransform(p: Vec3, elevationDeg = 22): Vec3 {
 }
 
 /**
- * A closed cylinder plus one longitudinal stripe.
+ * A rocket: nose cone, body tube, flat tail, and three swept fins.
  *
- * The stripe is not decoration. A bare cylinder is rotationally symmetric about its own
- * axis, so roll would be invisible — the model would sit perfectly still through the one
- * motion it is most important to see.
+ * Replaces the placeholder cylinder (`status.md` Next 14). The cylinder carried two
+ * ambiguities that only COLOUR resolved — it was rotationally symmetric about its own
+ * axis, so roll was invisible without the stripe, and its silhouette was identical
+ * upside down, so upright and inverted were told apart only by the nose and tail caps
+ * being different colours.
+ *
+ * A cone and fins resolve both in the SHAPE. That matters beyond neatness: the panel is
+ * read at a glance, in daylight, possibly by someone colourblind, and 068 removed the
+ * reliability shading that used to carry meaning — so silhouette is now doing more of
+ * the work than it was designed to.
+ *
+ * Three fins, to match the airframe this depicts rather than to suit the renderer.
+ *
+ * The stripe stays. Three fins are three-fold symmetric, so roll would still be ambiguous
+ * modulo 120 deg without it — and exactly nose-on, the fins foreshorten to spokes that
+ * look the same every third of a turn. Three is a weaker cue than four in that one
+ * respect and the right number anyway: a model that does not match the vehicle teaches
+ * the operator the wrong shape to look for.
+ *
+ * Radial extent is held at 0.42, the old cylinder's radius, so the silhouette is no
+ * wider than what the canvas was already sized for. The body tube is narrower than the
+ * cylinder was; the fins reach where its skin used to be.
+ *
+ * ⚠ THIS SOLID IS NOT CONVEX, and `projectMesh()` sorts by mean depth. See the note
+ * there. The fins are what break it.
  */
-export function cylinderMesh(
+export function rocketMesh(
   segments = 24,
-  radius = 0.42,
+  bodyRadius = 0.26,
   halfHeight = 1,
   stripeSegments = 2,
+  finCount = 3,
+  finSpan = 0.42,
 ): Face[] {
-  const ring = (z: number): Vec3[] =>
+  const ring = (z: number, r: number): Vec3[] =>
     Array.from({ length: segments }, (_, i) => {
       const a = (i / segments) * Math.PI * 2
-      return { x: Math.cos(a) * radius, y: Math.sin(a) * radius, z }
+      return { x: Math.cos(a) * r, y: Math.sin(a) * r, z }
     })
 
-  const bottom = ring(-halfHeight)
-  const top = ring(halfHeight)
+  const tailZ = -halfHeight
+  const shoulderZ = halfHeight * 0.5          // where the cone meets the tube
+  const tail = ring(tailZ, bodyRadius)
+  const shoulder = ring(shoulderZ, bodyRadius)
+  const apex: Vec3 = { x: 0, y: 0, z: halfHeight }
+
   const faces: Face[] = []
 
+  // Body tube, with the longitudinal stripe as before.
   for (let i = 0; i < segments; i++) {
     const j = (i + 1) % segments
     faces.push({
-      points: [bottom[i], bottom[j], top[j], top[i]],
+      points: [tail[i], tail[j], shoulder[j], shoulder[i]],
       kind: i < stripeSegments ? 'stripe' : 'body',
     })
   }
 
-  // Caps as single polygons. Flat shading is enough at this size, and it keeps the
-  // face count low enough that sorting every frame costs nothing.
-  faces.push({ points: top, kind: 'nose' })
-  faces.push({ points: [...bottom].reverse(), kind: 'tail' })
+  // Nose cone. Every face is `nose`, so the whole front quarter carries the colour that
+  // separates upright from inverted rather than just one flat cap.
+  for (let i = 0; i < segments; i++) {
+    const j = (i + 1) % segments
+    faces.push({ points: [shoulder[i], shoulder[j], apex], kind: 'nose' })
+  }
+
+  // Tail as one polygon. Flat shading is enough at this size.
+  faces.push({ points: [...tail].reverse(), kind: 'tail' })
+
+  // Fins, swept back so the trailing edge is square with the tail and the leading edge
+  // rakes forward. Zero thickness — there is no backface culling here and `faceLight()`
+  // never returns 0, so a fin seen from behind shades darker rather than vanishing.
+  //
+  // `stripe` rather than a new kind: semantically these ARE the roll marker the stripe
+  // was invented to be, and reusing the kind means shade() needs no new branch.
+  const finRootLeadZ = tailZ + halfHeight * 0.58
+  const finTipLeadZ = tailZ + halfHeight * 0.28
+  for (let f = 0; f < finCount; f++) {
+    const a = (f / finCount) * Math.PI * 2
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    const at = (r: number, z: number): Vec3 => ({ x: ca * r, y: sa * r, z })
+    faces.push({
+      points: [
+        at(bodyRadius, tailZ),        // root trailing
+        at(finSpan, tailZ),           // tip trailing
+        at(finSpan, finTipLeadZ),     // tip leading
+        at(bodyRadius, finRootLeadZ), // root leading
+      ],
+      kind: 'stripe',
+    })
+  }
 
   return faces
 }
@@ -181,9 +238,25 @@ export interface ProjectedFace {
 /**
  * Rotate, tip, project, sort.
  *
- * Painter's algorithm — draw far faces first and let near ones cover them. For a convex
- * solid this is exact, and a cylinder is convex, so there is nothing here that a depth
- * buffer would do better.
+ * Painter's algorithm — draw far faces first and let near ones cover them.
+ *
+ * ⚠ This was EXACT while the mesh was a cylinder, because sorting by depth is exact for
+ * a convex solid and a cylinder is convex. `rocketMesh()` added fins, and a finned body
+ * is not convex, so it is now an approximation.
+ *
+ * What that costs in practice is small and worth knowing rather than discovering. A fin
+ * on the far side of the body sorts behind it and is correctly hidden; one on the near
+ * side sorts in front and is correctly drawn over. The error case is a fin roughly
+ * side-on, whose mean depth sits near the body axis while part of it is nearer than the
+ * body's own skin — its root can be painted over at some angles. The fin is nearly
+ * edge-on there and a few pixels wide, so it reads as a flicker at the silhouette rather
+ * than as a wrong attitude.
+ *
+ * A depth buffer would fix it and is not worth 100 lines here. Splitting each fin at the
+ * body radius would fix most of it and is the cheap option if it ever looks wrong.
+ *
+ * ⚠ Nobody has yet looked at this model in a browser (`status.md` Next 11), so the
+ * paragraph above is reasoning, not observation.
  */
 export function projectMesh(
   mesh: Face[],

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { cylinderMesh, projectMesh, smoothAngle } from '../lib/pose'
+import { rocketMesh, projectMesh, smoothAngle } from '../lib/pose'
 
 interface PoseViewProps {
   /** Degrees, from the accelerometer. Null when no frame has arrived. */
@@ -10,7 +10,7 @@ interface PoseViewProps {
 /** Seconds for the model to cover most of the distance to a new sample. */
 const SMOOTHING_TAU = 0.22
 
-const MESH = cylinderMesh()
+const MESH = rocketMesh()
 
 /**
  * The CanSat as a solid, eased between samples.

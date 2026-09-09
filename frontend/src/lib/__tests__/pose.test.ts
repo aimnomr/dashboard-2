@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  cylinderMesh,
+  rocketMesh,
   projectMesh,
   rotateBody,
   shortestAngleDelta,
@@ -106,7 +106,7 @@ describe('which way is up', () => {
   })
 
   it('projects the nose above the tail at rest', () => {
-    const faces = projectMesh(cylinderMesh(), 0, 0, 100)
+    const faces = projectMesh(rocketMesh(), 0, 0, 100)
     const meanY = (kind: string) => {
       const face = faces.find((f) => f.kind === kind)!
       return face.points.reduce((sum, p) => sum + p.y, 0) / face.points.length
@@ -117,7 +117,7 @@ describe('which way is up', () => {
 
   it('renders an upright can taller than it is wide', () => {
     // The failure mode was a foreshortened cylinder that read as lying down.
-    const faces = projectMesh(cylinderMesh(), 0, 0, 100)
+    const faces = projectMesh(rocketMesh(), 0, 0, 100)
     const ys = faces.flatMap((f) => f.points.map((p) => p.y))
     const xs = faces.flatMap((f) => f.points.map((p) => p.x))
     const height = Math.max(...ys) - Math.min(...ys)
@@ -126,7 +126,7 @@ describe('which way is up', () => {
   })
 
   it('lays the can across the screen at pitch 90, not at rest', () => {
-    const onSide = projectMesh(cylinderMesh(), 90, 0, 100)
+    const onSide = projectMesh(rocketMesh(), 90, 0, 100)
     const ys = onSide.flatMap((f) => f.points.map((p) => p.y))
     const xs = onSide.flatMap((f) => f.points.map((p) => p.x))
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(Math.max(...ys) - Math.min(...ys))
@@ -136,8 +136,8 @@ describe('which way is up', () => {
     // A consequence of the camera looking along -y: pitch tips the can left and right,
     // roll tips it toward and away. Both are correct; recorded because the difference
     // is not obvious and a future camera move would change it.
-    const rolled = projectMesh(cylinderMesh(), 0, 90, 100)
-    const upright = projectMesh(cylinderMesh(), 0, 0, 100)
+    const rolled = projectMesh(rocketMesh(), 0, 90, 100)
+    const upright = projectMesh(rocketMesh(), 0, 0, 100)
     const height = (faces: typeof rolled) => {
       const ys = faces.flatMap((f) => f.points.map((p) => p.y))
       return Math.max(...ys) - Math.min(...ys)
@@ -169,7 +169,7 @@ describe('the camera is a rotation, not a mirror', () => {
     //
     // Nose and tail are the only cue separating upright from inverted, which on a
     // descending CanSat is the distinction worth seeing.
-    const faces = projectMesh(cylinderMesh(), 0, 0, 100)
+    const faces = projectMesh(rocketMesh(), 0, 0, 100)
     const depth = (kind: string) => faces.find((f) => f.kind === kind)!.depth
     expect(depth('nose')).toBeGreaterThan(depth('tail'))
   })
@@ -206,23 +206,56 @@ describe('the camera is a rotation, not a mirror', () => {
 
 describe('mesh and projection', () => {
   it('builds a closed cylinder with a visible stripe', () => {
-    const mesh = cylinderMesh()
+    const mesh = rocketMesh()
     // Without a stripe the cylinder is rotationally symmetric and roll is invisible —
     // the model would sit still through the motion it most needs to show.
     expect(mesh.filter((f) => f.kind === 'stripe').length).toBeGreaterThan(0)
   })
 
   it('gives the two ends distinct kinds', () => {
-    // An inverted cylinder has the same silhouette as an upright one. Different ends
-    // are the only thing that separates them, and on a descending CanSat that is the
-    // distinction worth seeing.
-    const mesh = cylinderMesh()
-    expect(mesh.filter((f) => f.kind === 'nose')).toHaveLength(1)
-    expect(mesh.filter((f) => f.kind === 'tail')).toHaveLength(1)
+    // An inverted CYLINDER had the same silhouette as an upright one, so different end
+    // colours were the only thing separating them. The rocket resolves that in the shape
+    // too, but the kinds still have to exist and still have to be at opposite ends.
+    //
+    // Counts are no longer 1 and 1: `nose` is now every face of the cone, so that the
+    // whole front quarter carries the colour rather than one flat cap.
+    const mesh = rocketMesh()
+    const nose = mesh.filter((f) => f.kind === 'nose')
+    const tail = mesh.filter((f) => f.kind === 'tail')
+    expect(nose.length).toBeGreaterThan(0)
+    expect(tail.length).toBeGreaterThan(0)
+
+    const meanZ = (faces: typeof nose) =>
+      faces.flatMap((f) => f.points).reduce((s, p) => s + p.z, 0) /
+      faces.flatMap((f) => f.points).length
+    expect(meanZ(nose)).toBeGreaterThan(meanZ(tail))
+  })
+
+  it('resolves roll and inversion in the SHAPE, not only in colour', () => {
+    // The point of replacing the cylinder. Strip every kind to one colour and the
+    // silhouette must still say which way up it is and which way it is rolled.
+    const mesh = rocketMesh()
+
+    // Not end-symmetric: the nose tapers to a point, the tail does not.
+    const maxRadiusNear = (zLo: number, zHi: number) =>
+      Math.max(
+        ...mesh
+          .flatMap((f) => f.points)
+          .filter((p) => p.z >= zLo && p.z <= zHi)
+          .map((p) => Math.hypot(p.x, p.y)),
+      )
+    expect(maxRadiusNear(0.9, 1.0)).toBeLessThan(maxRadiusNear(-1.0, -0.9))
+
+    // Not rotationally symmetric: fins reach further out than the tube.
+    const tubeRadius = 0.26
+    const beyondTube = mesh
+      .flatMap((f) => f.points)
+      .filter((p) => Math.hypot(p.x, p.y) > tubeRadius + 1e-6)
+    expect(beyondTube.length).toBeGreaterThan(0)
   })
 
   it('sorts faces far to near', () => {
-    const faces = projectMesh(cylinderMesh(), 20, 35, 50)
+    const faces = projectMesh(rocketMesh(), 20, 35, 50)
     for (let i = 1; i < faces.length; i++) {
       expect(faces[i].depth).toBeGreaterThanOrEqual(faces[i - 1].depth)
     }
@@ -231,7 +264,7 @@ describe('mesh and projection', () => {
   it('produces finite geometry at every attitude', () => {
     for (let pitch = -180; pitch <= 180; pitch += 30) {
       for (let roll = -180; roll <= 180; roll += 30) {
-        for (const face of projectMesh(cylinderMesh(8), pitch, roll, 40)) {
+        for (const face of projectMesh(rocketMesh(8), pitch, roll, 40)) {
           for (const p of face.points) {
             expect(Number.isFinite(p.x)).toBe(true)
             expect(Number.isFinite(p.y)).toBe(true)
