@@ -12,6 +12,10 @@ interface ChannelsViewProps {
   session: SessionMessage | null
 }
 
+/* This view carries no uplink control. PING sat here for part of 2026-09-09 and moved
+   back to the Uplink panel the same day — it belongs beside the `ul` counter that is the
+   only evidence it worked, and reaching it from here cost a view switch during flight. */
+
 interface Channel {
   title: string
   unit: string

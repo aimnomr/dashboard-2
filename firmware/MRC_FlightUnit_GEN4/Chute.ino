@@ -66,9 +66,21 @@ void chuteBegin() {
  * re-arm are both deadlines that chuteTick() services from the cycle's existing poll
  * loops. The 1000 ms delay that used to sit here overran the cycle it landed in by
  * construction — 1000 ms of hold on top of ~650 ms of work against a 1000 ms period
- * — and cost one late packet at the exact moment the ground most wants a packet. */
-void chuteFire() {
-  if (chuteFired) return;
+ * — and cost one late packet at the exact moment the ground most wants a packet.
+ *
+ * RETURNS whether this call actually DROVE the mechanism — true once per release, false
+ * for every repeat that lands while the latch holds. Callers increment chuteCommands on
+ * that return and not on their own receipt, which is what makes `chute` count RELEASES
+ * rather than eject packets.
+ *
+ * Before 2026-09-09 the increment sat outside this call, so one operator EJECT moved the
+ * counter by about three: fireEjectBurst() sends up to EJECT_ATTEMPTS packets over
+ * ~1.4 s, the vehicle counted every intake event, and a burst spans several cycles and
+ * both intake paths. 061 put it outside deliberately — the reasoning was that the ground
+ * needs to see receipt whether or not anything was driven — but receipt is what `ul` is
+ * for, and it rises on every packet regardless. One field per question. */
+bool chuteFire() {
+  if (chuteFired) return false;
   chuteFired     = true;
   chuteEverFired = true;
   chuteDriven    = true;
@@ -81,11 +93,19 @@ void chuteFire() {
 #endif
 
   Serial.println("[FLT] CHUTE RELEASE COMMANDED");
+  return true;
 }
 
 /* Called from every poll loop in the cycle, so the two deadlines below are met to
  * within LISTEN_TICK_MS rather than to within a whole cycle. Cheap and reentrant:
  * two unsigned comparisons when there is nothing to do.
+ *
+ * That sentence was aspirational until 2026-09-09: radioListenForEject() was the one
+ * poll loop that did not call this, so a deadline landing in the 400 ms listen window
+ * waited for holdUntilListening() later in the same cycle — up to ~450 ms late. All
+ * four loops now service it, and the claim is true as written. The four are loop(),
+ * holdUntil(), holdUntilListening() and radioListenForEject(); a fifth poll loop added
+ * later must call this too.
  *
  * ⚠ Both deadlines are measured from the drive, not from each other. */
 void chuteTick() {

@@ -182,8 +182,8 @@
   align-self: flex-start;
 }
 
-/* Visually quiet, and separated from the arm/fire pair above it: this one is safe to
-   press, and must not be reached for by muscle memory when the other is intended. */
+/* The Ping row. The rule above it used to separate this from the arm/fire pair, which no
+   longer exists — it now just divides the chute light from the one control below it. */
 .uplink__test {
   display: flex;
   align-items: center;
@@ -198,6 +198,98 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--gap);
   margin-top: 0.5rem;
+}
+
+/* ---- chute state light ------------------------------------------------------
+   Red armed, green released, grey re-arming. Colour is never the only carrier —
+   the label says the same thing in words, because a red/green pair is exactly the
+   distinction the most common colour blindness removes. */
+
+.chute-state {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius);
+  border: 2px solid currentColor;
+  margin-bottom: 0.375rem;
+}
+
+.chute-state--alert   { color: var(--alert);   background: var(--alert-bg); }
+.chute-state--ok      { color: var(--ok);      background: var(--ok-bg); }
+.chute-state--unknown { color: var(--unknown); background: var(--unknown-bg); }
+
+.chute-state__lamp {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.chute-state__label {
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Pushed to the far end and quietened: the count is durable reference, the light is
+   the thing being read at a glance. */
+.chute-state__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--size-label);
+  opacity: 0.75;
+}
+
+/* ---- uplink SET control ------------------------------------------------------ */
+
+.uplink__set {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  margin-top: 0.375rem;
+}
+
+.uplink__set-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* The input yields first as the panel narrows; both buttons keep their labels intact.
+   A truncated "Sen" is worse than a two-character-narrower number field. */
+.uplink__set-input {
+  flex: 1;
+  min-width: 3.5rem;
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: 0.25rem 0.375rem;
+  border-radius: 4px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel-bg-sunk);
+  color: var(--text);
+}
+
+.uplink__set-input:focus-visible { outline: 3px solid var(--trace); outline-offset: 1px; }
+
+.uplink__set-unit {
+  font-size: var(--size-label);
+  color: var(--text-dim);
+}
+
+.uplink__set-error {
+  font-size: var(--size-label);
+  color: var(--warn);
+}
+
+/* One line, always. This panel has ~20px of headroom in its cell and a wrapped refusal
+   string would spend all of it — see the note at the call site. Full text on hover. */
+.uplink__set-feedback {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* ---- raw feed --------------------------------------------------------------- */

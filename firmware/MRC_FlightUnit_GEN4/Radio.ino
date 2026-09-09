@@ -144,6 +144,18 @@ bool radioListenForEject(uint32_t windowMs) {
   while ((int32_t)(windowEnd - millis()) > 0) {
     gpsFeed();
 
+    /* Added 2026-09-09. This was the one poll loop in the cycle that did NOT service
+     * the mechanism, which made chuteTick()'s own claim — deadlines met to within
+     * LISTEN_TICK_MS — untrue for anything falling inside this 400 ms window. A release
+     * driven early in the window had its return sweep deferred to holdUntilListening()
+     * later in the same cycle, up to ~450 ms late.
+     *
+     * Harmless as the constants stand, because CHUTE_HOLD_MS is 1000 and the horn
+     * simply dwelled longer. It stops being harmless the moment CHUTE_HOLD_MS is
+     * tightened toward the width of this window, so the loop is corrected rather than
+     * the comment. Cheap: two unsigned comparisons when there is nothing to do. */
+    chuteTick();
+
     /* Keep listening for the rest of the window even after a hit: the ground station
      * retries until it sees the count rise, and counting every arrival is what
      * reports uplink quality. */

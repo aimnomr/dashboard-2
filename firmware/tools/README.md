@@ -33,9 +33,49 @@ one-shot latch, and only `RESET:CHUTE` over the GEN4 uplink clears it.
 ⚠ Reaching `RELEASE_DEG` proves the horn moved. It does not prove the parachute opened,
 here or in flight — there is no feedback sensor anywhere in this system.
 
-## GPS_Relay_Flight + GPS_Relay_Ground — use this pair
+## GPS_PacketTest — raw GPS, on the real dashboard
 
-**The GPS test you actually want.** Flash one to each unit. The CanSat goes outside under
+**Start here.** Flash it to the flight unit and take it outside. The **existing GEN4 ground
+station needs no reflash**: this sketch transmits genuine GEN3.1 `$MRC` packets on
+`SYNC_WORD 0xAA`, so `python -m dashboard --port COMxx` parses them and the GPS and Ground
+Track panels come alive. One sketch, one unit, no second ground build.
+
+Every second it also prints the raw-GPS digest over USB at 115200, and puts `sat`, `hdop`,
+`fixq` and `chars` on the OLED — which is the half that matters when there is no laptop.
+
+```
+[GPSPKT] chars=5820 bad=0 fixsent=61 sat=4 hdop=11.2 fixq=0
+$MRC,12,12000,-999.00,-999.0,...,0.00000,0.00000,0.0,4,0,0,11.2,0*D9F7
+```
+
+⚠ **Only the GPS fields are measured.** `temp`, `hum`, `pres`, `alt` and all six IMU axes
+carry **-999**, so the dashboard shows nonsense in Environment, Altitude and Attitude while
+this runs. That is deliberate and it is the honest option: the parser rejects any frame
+containing a blank or NaN field, so *something* numeric has to go there, and -999 falls
+outside every plausible range in `parser.py` — each one arrives flagged as a warning rather
+than passing silently as a reading. Zeros would not have: 0 °C, 0 %RH and 0 m are all
+plausible, and a 0 g attitude renders as a confident level pose.
+
+`chute` and `ul` are always 0, honestly — there is no mechanism and no uplink listener here.
+
+⚠ Logs from this sketch are identical in **form** to a real flight — same prefix, same 20
+fields, same CRC, same `-serial.log` name. The -999 columns are the only thing telling them
+apart. Label one if you keep it.
+
+**What to watch for:** `sat` past 6 with `hdop` under 3 gives a fix. Four satellites at
+HDOP 11 outdoors means the antenna, not the wiring — see `ISS-14`.
+
+## GPS_Relay_Flight + GPS_Relay_Ground — raw NMEA sentences
+
+Use this pair when you need the **actual sentences** rather than a parsed position.
+`GPS_PacketTest` above is the better first move for "is there a fix yet".
+
+⚠ **Both halves are still on `SYNC_WORD 0xAB`**, stale since devlog 060 moved GEN4 to
+`0xAA`. They talk to each other, so the pair works — but neither can reach the GEN4 ground
+station, and a sync-word mismatch presents as **silence**, not as an error. Flashing only
+one of the two units is the trap.
+
+Flash one to each unit. The CanSat goes outside under
 clear sky; the ground unit stays on the laptop and prints everything over USB at 115200.
 
 Once per second the CanSat sends:

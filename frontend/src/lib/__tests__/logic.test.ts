@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { attitudeWarning, computeAttitude, UNRELIABLE_CONFIRM } from '../attitude'
 import { fixStale, hasFix, hasLiveFix, niceScale, toLocal } from '../geo'
 import {
+  DROP_MAX_M,
+  DROP_MIN_M,
   EJECT_REARM_MS,
+  RELEASE_FLASH_MS,
+  chuteIndicator,
   chutePresentation,
+  dropValidation,
   formatMeasurement,
   lossPresentation,
   rearmPresentation,
@@ -377,5 +382,99 @@ describe('the eject control re-arms rather than latching (063)', () => {
     // station's. If those move and this does not, the button re-enables while the
     // vehicle is still latched and reports a release that never drove anything.
     expect(EJECT_REARM_MS).toBe(3000)
+  })
+})
+
+describe('the chute state light', () => {
+  const rose = 10_000
+
+  it('reads armed when nothing has been seen to fire', () => {
+    // Includes the case of a page opened long after a release: that vehicle re-armed
+    // ago, and driving this off the absolute counter would be devlog 058 again.
+    expect(chuteIndicator(null, rose)).toMatchObject({ state: 'armed', tone: 'alert' })
+  })
+
+  it('goes green the moment the counter rises', () => {
+    expect(chuteIndicator(rose, rose)).toMatchObject({ state: 'released', tone: 'ok' })
+  })
+
+  it('holds green for the whole flash window', () => {
+    for (let t = 0; t < RELEASE_FLASH_MS; t += 100) {
+      expect(chuteIndicator(rose, rose + t).state).toBe('released')
+    }
+  })
+
+  it('turns grey for the rest of the cooldown', () => {
+    expect(chuteIndicator(rose, rose + RELEASE_FLASH_MS)).toMatchObject({
+      state: 'cooldown',
+      tone: 'unknown',
+    })
+    expect(chuteIndicator(rose, rose + EJECT_REARM_MS - 1).state).toBe('cooldown')
+  })
+
+  it('counts down in the grey state and never reaches zero while still grey', () => {
+    for (let t = RELEASE_FLASH_MS; t < EJECT_REARM_MS; t += 100) {
+      expect(chuteIndicator(rose, rose + t).secondsLeft).toBeGreaterThan(0)
+    }
+  })
+
+  it('returns to red once the cooldown has fully elapsed', () => {
+    // ⚠ An ASSUMPTION on a SINGLE-mode vehicle, whose latch stands until RESET:CHUTE.
+    // GEN3.1 has no config fields, so the dashboard cannot read the mode; the gap was
+    // accepted deliberately rather than hedged in the label. See devlog 064.
+    expect(chuteIndicator(rose, rose + EJECT_REARM_MS)).toMatchObject({
+      state: 'armed',
+      tone: 'alert',
+    })
+  })
+
+  it('treats clock skew as a release that just happened', () => {
+    // A rise cannot be in the future. Failing toward showing it beats showing armed.
+    expect(chuteIndicator(rose, rose - 5_000).state).toBe('released')
+  })
+
+  it('spends the flash inside the cooldown, never past it', () => {
+    // If the flash outlasted the re-arm the light would jump green -> red with no grey,
+    // and the cooldown would never be visible at all.
+    expect(RELEASE_FLASH_MS).toBeLessThan(EJECT_REARM_MS)
+  })
+})
+
+describe('SET:DROP is validated before it can reach the air', () => {
+  it('says nothing about an empty box', () => {
+    // Not an error the operator has made yet — the Send button is simply not armed.
+    expect(dropValidation('')).toEqual({ ok: false, reason: null })
+    expect(dropValidation('   ')).toEqual({ ok: false, reason: null })
+  })
+
+  it('accepts a value inside the bounds', () => {
+    expect(dropValidation('15').ok).toBe(true)
+    expect(dropValidation(' 15.5 ').ok).toBe(true)
+  })
+
+  it('accepts both bounds, which are inclusive', () => {
+    expect(dropValidation(String(DROP_MIN_M)).ok).toBe(true)
+    expect(dropValidation(String(DROP_MAX_M)).ok).toBe(true)
+  })
+
+  it('refuses values outside the bounds', () => {
+    expect(dropValidation(String(DROP_MIN_M - 0.1)).ok).toBe(false)
+    expect(dropValidation(String(DROP_MAX_M + 0.1)).ok).toBe(false)
+  })
+
+  it('refuses garbage rather than sending NaN', () => {
+    // Number('') is 0 and atof() returns 0 on garbage, so an unguarded parse sends a
+    // value the vehicle then refuses — and `ul` rises either way, which makes a refused
+    // command look confirmed from the ground.
+    for (const bad of ['abc', '1.2.3', 'NaN', 'Infinity', '--5']) {
+      expect(dropValidation(bad).ok).toBe(false)
+    }
+  })
+
+  it('mirrors the backend bounds', () => {
+    // GEN4_SET_KEYS['DROP'] in backend/dashboard/api.py, which itself mirrors
+    // AUTO_EJECT_DROP_MIN_M / _MAX_M in both GEN4 Config.h files and COMMANDS.md.
+    // Five copies. api.py is the authority; this one only saves a round trip.
+    expect([DROP_MIN_M, DROP_MAX_M]).toEqual([2.0, 100.0])
   })
 })

@@ -81,10 +81,20 @@ body {
   color: var(--text-faint);
 }
 
+/* `overflow-y: auto` is a GUARD, not a layout mechanism. The grid is fixed at 3x3 with
+   fr-sized rows, so a panel whose content outgrows its cell used to spill straight past
+   its own border and push the whole document into scrolling — measured at 57px of spill
+   from the Uplink panel on 2026-09-09, which read as the entire dashboard being shifted.
+
+   auto rather than hidden, deliberately: hidden would make a control silently
+   unreachable, and a scrollbar appearing where none was intended is a visible bug rather
+   than an invisible one. If one shows up, the panel's content is too tall for its row and
+   that is the thing to fix — this only stops it wrecking the page in the meantime. */
 .panel__body {
   flex: 1;
   min-height: 0;
   min-width: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }

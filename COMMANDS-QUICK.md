@@ -94,8 +94,9 @@ No CLI build. Arduino IDE, by hand. Flash as a **pair**, both units.
 firmware/MRC_FlightUnit_GEN3/      firmware/MRC_GroundStation_GEN3/
 firmware/MRC_FlightUnit_GEN4/      firmware/MRC_GroundStation_GEN4/
 firmware/tools/ServoEjectTest/     bench the servo before trusting it
-firmware/tools/GPS_Relay_Flight/   + GPS_Relay_Ground — the GPS test that works
-firmware/tools/UART_PinTest/       when the relay reports chars=0
+firmware/tools/GPS_PacketTest/     GPS on the normal dashboard, no ground reflash
+firmware/tools/GPS_Relay_Flight/   + GPS_Relay_Ground — raw NMEA, both on sync 0xAB
+firmware/tools/UART_PinTest/       when a GPS tool reports chars=0
 ```
 
 Vehicle USB is **115200**. Power it flat, still, and at launch height.

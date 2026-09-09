@@ -27,7 +27,7 @@ the way it is. Actions taken go in the devlog; this file tracks state.
 | [ISS-11](#iss-11) | Offline map tiles for field use | 🔴 Open | — | GPS map panel |
 | [ISS-12](#iss-12) | Field laptop provisioning | 🔴 Open | Aiman | Launch day |
 | [ISS-13](#iss-13) | Frequency coordination with other teams | 🔴 Open | Aiman | Launch day, link viability |
-| [ISS-14](#iss-14) | GPS delivers zero bytes — module appears unpowered | 🔴 Open | Aiman | All GPS telemetry |
+| [ISS-14](#iss-14) | GPS never reaches a fix — tracking 4 sats at HDOP 11 | 🔴 Open | Aiman | All GPS telemetry |
 | [ISS-15](#iss-15) | SQLite store not built | 🟡 Deferred | — | Post-flight analysis |
 | [ISS-16](#iss-16) | Replay not built | 🟢 Resolved | — | — |
 
@@ -387,9 +387,58 @@ look identical at exactly the wrong moment.
 ---
 
 <a id="iss-14"></a>
-## ISS-14 — GPS delivers zero bytes; module appears unpowered
+## ISS-14 — GPS never reaches a fix
 
 **Status** 🔴 Open · **Raised** 2026-08-19 · **Owner** Aiman
+
+> **Updated 2026-09-09. The module is alive, the wiring is right, and the original
+> diagnosis no longer describes the fault.** Retitled accordingly — it was "GPS delivers
+> zero bytes; module appears unpowered", and neither half of that is true today.
+>
+> **Evidence.** `logs/raw/20260909-014323-serial.log` carries **51 consecutive packets,
+> seq 58–116, reading `sat=4` and `hdop=11.1–11.3`.** A satellite count cannot come
+> through a dead module, an unpowered one, or a crossed pin pair. NMEA was flowing and the
+> receiver was tracking four satellites for about a minute.
+>
+> **What that closes:**
+>
+> - **`chars=0` is not the current symptom.** The finding this issue was built on has been
+>   overtaken by events. Power hypotheses **A** (switched `Ve` rail) and **B** (brownout)
+>   are not what is blocking a fix now. They are left below because neither was ever
+>   *disproved* — only shown not to be the thing in the way.
+> - **The GPS pins are confirmed correct on hardware: `GPS_RX 20` / `GPS_TX 19`.** Devlog
+>   062 changed them for the new PCB and shipped them unverified, saying so explicitly —
+>   *"GPS_Passthrough or UART_PinTest on the bench is the cheap way to confirm the new
+>   numbers before assuming them."* This log is that confirmation, arrived at by accident.
+>
+> **What remains, and it is the whole issue now.** `fixq` is **0 in every packet of all
+> four sessions on 2026-09-09** — roughly 1,300 packets, not one valid fix, including
+> throughout the window with four satellites. `lat`/`lng` stay `0.00000`, which is the
+> firmware's invalid-position output and not a coordinate.
+>
+> Four satellites is the bare minimum for a 3D fix and **HDOP 11.2 is very poor geometry**
+> — usable is normally under 5. Acquiring four badly-spread satellites, holding them ~59 s
+> and dropping back to `sat=0` is the signature of an obstructed sky, not an electrical
+> fault. **The leading cause is now sky view or antenna.**
+>
+> **A third state was also seen.** Session `20260909-021936` reads `hdop=0.0, fixq=-1` for
+> all 306 packets — the *receiver never reported it* sentinel (`Sensors.ino:171`: "0.0 is
+> a safe sentinel: a real HDOP is never zero"), which is a different thing from `hdop=100,
+> fixq=0` meaning *reported, no fix*. The receiver stopped supplying HDOP entirely for that
+> run. `gz` reaches 84 deg/s in the same session, so the unit was being handled; a
+> disturbed connector fits.
+>
+> **Resolve in this order now:**
+>
+> 1. **Outdoors, clear sky, 2–3 minutes.** Watch `sat` and `hdop` in the dashboard packet
+>    readout. `sat` past 6 with `hdop` under 3 gives a fix and proves the chain end to end.
+> 2. **If it stays at 4 sats / HDOP 11 outdoors, it is the antenna** — connector, placement,
+>    or the patch itself. Not the wiring, which this log has settled.
+> 3. `firmware/tools/GPS_PacketTest` exists for exactly this run: real GPS in a GEN3.1
+>    packet the normal dashboard parses, with every unmeasured field flagged.
+>
+> The 2026-08-19 material below is kept because it records how the wiring and power
+> questions were reasoned through, and because nothing in it was refuted — only outranked.
 
 > **Updated 2026-08-19.** Aiman reports the GPS module **used to light up but now does
 > not** once the whole system is powered together. That supersedes the USB-pin hypothesis

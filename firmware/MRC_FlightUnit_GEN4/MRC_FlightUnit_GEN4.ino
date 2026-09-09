@@ -14,8 +14,10 @@
  *
  *  061 also made the RELEASE MECHANISM repeatable: it returns to ARMED on a timer
  *  and its drive latch expires, so a second EJECT drives it again without a reset.
- *  Still no new packet fields — `chute` counts eject packets received exactly as it
- *  did, and cannot tell you how many times the mechanism actually moved.
+ *  Still no new packet fields. Since 2026-09-09 `chute` counts RELEASES PERFORMED —
+ *  one per operator EJECT, because the increment is gated on chuteFire()'s return
+ *  rather than on receipt. It previously rose per packet received, which moved it by
+ *  about three per command. `ul` is unchanged and still counts every packet heard.
  *
  *  Because only the uplink grammar changed, a mismatched pair degrades safely in
  *  both directions: a GEN3 vehicle ignores SET as foreign traffic and never moves
@@ -165,9 +167,12 @@ void loop() {
    * fills in about 130 ms, so leaving it unread for a 400 ms window would drop
    * NMEA sentences. */
   if (ENABLE_UPLINK) {
-    if (radioListenForEject(LISTEN_WINDOW_MS)) {
+    /* Counted on the DRIVE, not on receipt. chuteFire() returns false for every repeat
+     * that lands while the latch holds, so the four remaining attempts of one operator
+     * burst move nothing — `chute` rises once per release. Receipt is `ul`'s job and it
+     * still counts every packet, including the ones ignored here. */
+    if (radioListenForEject(LISTEN_WINDOW_MS) && chuteFire()) {
       chuteCommands++;
-      chuteFire();                    /* idempotent - safe on every repeat */
       Serial.print("[FLT] EJECT received, count ");
       Serial.println(chuteCommands);
     }
@@ -183,13 +188,14 @@ void loop() {
    * decided here is visible in THIS cycle's `chute`, not the next one. A second's
    * delay would be invisible on the ground and is free to avoid.
    *
-   * Counted into chuteCommands exactly like an uplink command, because the field
-   * means "release commanded" and this is a release commanded. chuteFire() is
-   * idempotent, so a ground EJECT arriving afterwards drives nothing — see the
-   * one-shot latch in Chute.ino. */
-  if (apogeeUpdate(tm.alt)) {
+   * Counted into chuteCommands exactly like an uplink command, because the field means
+   * "release performed" and this is a release performed. Gated on chuteFire()'s return
+   * for the same reason the uplink path is, though it cannot fail here: apogeeUpdate()
+   * already refuses on chuteIsFired(), so the latch cannot be set when this is reached.
+   * Written as the same shape anyway — a guard that is currently unreachable is cheaper
+   * than one that is missing when the guard above it moves. */
+  if (apogeeUpdate(tm.alt) && chuteFire()) {
     chuteCommands++;
-    chuteFire();
     Serial.print("[FLT] chute released by AUTO-EJECT, count ");
     Serial.println(chuteCommands);
   }
@@ -289,15 +295,21 @@ void holdUntil(uint32_t deadlineMs) {
  * dispatched here as well as in the front window — through the same
  * radioServiceUplink() in both places, never a second copy of the token
  * matching. chuteFire() is idempotent, so a command landing here needs no
- * special handling relative to one landing in the window. */
+ * special handling relative to one landing in the window.
+ *
+ * This path used to be the noisier of the two: radioServiceUplink() returns per PACKET
+ * while radioListenForEject() collapsed a whole window into one bool, so an eject burst
+ * landing in the back half counted every attempt and one landing in the front counted
+ * one — the asymmetry devlog 065 recorded as fault 2. Counting on the drive removes it
+ * from `chute` entirely; the two paths still differ for `ul`, which is correct, because
+ * `ul` is a count of packets and this is a count of releases. */
 void holdUntilListening(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
     chuteTick();
 
-    if (ENABLE_UPLINK && radioServiceUplink()) {
+    if (ENABLE_UPLINK && radioServiceUplink() && chuteFire()) {
       chuteCommands++;
-      chuteFire();
       Serial.print("[FLT] EJECT received, count ");
       Serial.println(chuteCommands);
     }

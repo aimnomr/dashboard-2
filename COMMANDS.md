@@ -300,11 +300,19 @@ python -m devtools.send_command RESET:CHUTE
   "releases commanded", and two were. The dashboard renders it as `Commanded ×N` for
   every N (rule S8, devlog 059); it does not use the word "deployed" anywhere, because no
   canopy sensor exists.
-- **`chute` counts eject packets RECEIVED, not releases performed.** `chuteCommands++`
-  sits outside the vehicle's fire latch, so one operator `EJECT` whose 5-shot burst lands
-  twice moves the counter by 2 and drives the mechanism once. `CHUTE_REARM_MS` (3000 ms)
-  is deliberately longer than the burst span (~1404 ms) so that a single command can never
-  drive the mechanism twice — but the counter still moves per packet.
+- **`chute` counts RELEASES PERFORMED — one per operator `EJECT`.** Changed 2026-09-09.
+  `chuteCommands++` is now gated on `chuteFire()`'s return, which is true only on the call
+  that actually drives the mechanism, so the four remaining attempts of a 5-shot burst
+  move nothing. `CHUTE_REARM_MS` (3000 ms) is still longer than the burst span (~1404 ms),
+  so a single command still cannot drive the mechanism twice.
+
+  Until this change the counter sat outside the fire latch and rose per packet received,
+  so one `EJECT` typically moved it by 3. If you are reading a log captured before
+  2026-09-09, that is the behaviour you are looking at.
+
+  **Receipt is `ul`'s job and is unchanged** — it still rises on every uplink packet the
+  vehicle hears, including the burst attempts this counter now ignores. `chute` rising
+  with `ul` UNCHANGED remains the only ground-side proof a release was automatic.
 - **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
   BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
   cycle against a fresh apogee and fires again once it has dropped `DROP` from there.
@@ -417,10 +425,18 @@ works with no reconfiguration. Full detail in `firmware/tools/README.md`.
 | Sketch | Use |
 |---|---|
 | `ServoEjectTest` | **bench the release servo**, thrown by a button instead of a radio. Run before trusting a deployment. Its pin and angles must agree with `CHUTE_*` in both `Config.h` files |
-| `GPS_Relay_Flight` + `GPS_Relay_Ground` | **the GPS test you actually want.** One per unit; CanSat outside under sky, ground unit on USB at 115200 |
-| `UART_PinTest` | run when the relay reports `chars=0`. Jumper pin 19 to pin 20 with the GPS disconnected |
+| `GPS_PacketTest` | **the GPS test to start with.** Flight unit only — emits real GEN3.1 `$MRC` packets on `SYNC_WORD 0xAA`, so the **existing** GEN4 ground station and dashboard show the fix with no reflash. Everything but the GPS fields is `-999` and arrives flagged; see the note below |
+| `GPS_Relay_Flight` + `GPS_Relay_Ground` | raw NMEA **sentences**, one per unit; CanSat outside under sky, ground unit on USB at 115200. ⚠ both halves are still on `SYNC_WORD 0xAB` (stale since devlog 060) so neither reaches the GEN4 ground station — flash both or neither, because a mismatch is silent |
+| `UART_PinTest` | run when a GPS tool reports `chars=0`. Jumper pin 19 to pin 20 with the GPS disconnected |
 | `GPS_Passthrough` | desk test only — is the module alive at all |
 | `GPS_Minimal` | minimal read |
+
+**`GPS_PacketTest` writes `-999` into `temp`, `hum`, `pres`, `alt` and all six IMU axes**,
+because it measures none of them. The parser rejects any frame with a blank or non-finite
+field, so a number has to go there; `-999` is outside every range in `parser.py::_PLAUSIBLE`,
+so each one arrives as a warning instead of passing as a reading. Environment, Altitude and
+Attitude will show nonsense while it runs — that is the point. Its logs are otherwise
+indistinguishable from a real flight, so label any you keep.
 
 The `inview` vs `used` split in the relay output is the useful part: satellites in view
 prove the antenna and sky are fine even with no fix yet, which is exactly the distinction
