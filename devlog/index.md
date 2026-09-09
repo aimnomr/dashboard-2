@@ -68,3 +68,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-09-07 · 063 · The dashboard can command a repeat release
 - 2026-09-07 · 064 · SINGLE and MULTI release modes, switchable from the ground
 - 2026-09-07 · 065 · A swallowed EJECT, an undercounted chute, and a poisoned altitude baseline
+- 2026-09-09 · 066 · The GPS reaches a fix, and two vehicles were on one channel
+- 2026-09-09 · 067 · `chute` counts releases performed, not eject packets received
+- 2026-09-09 · 068 · The eject control leaves the dashboard, and the attitude panel stops judging
