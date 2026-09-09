@@ -123,11 +123,56 @@ void sensorsCalibrate() {
     Serial.println(" dps - was the unit still?");
   }
 
-  baseAltitude   = bme.readAltitude(SEA_LEVEL_HPA);
-  altitudeZeroed = true;
-  Serial.print("[FLT] altitude zeroed at ");
-  Serial.print(baseAltitude, 1);
-  Serial.println(" m");
+  /* The baseline every later altitude is measured against, so a bad one poisons the
+   * whole flight — and devlog 065 caught exactly that: a vehicle restarted while its
+   * BME280 was returning garbage, captured baseAltitude during the corruption, and flew
+   * reading about -1740 m with correct pressure beside it. Auto-eject could never arm
+   * from there, at the 30 m default or at the 5 m floor.
+   *
+   * Read once with no check until 071. Now: retry, require a finite value inside a band
+   * no launch site on earth falls outside, and REFUSE to zero rather than zero wrongly.
+   *
+   * Failing closed costs the auto-eject path and keeps everything else — altitudeZeroed
+   * false makes sensorsAltitude() report 0.0, which can never pass AUTO_EJECT_ARM_ALT_M,
+   * so the trigger is inert while telemetry, the uplink and the commanded release all
+   * still work. The ground can still fire the chute. That is the right way to fail: a
+   * vehicle that cannot auto-eject is a disappointment, one that thinks it is 1.7 km
+   * underground is a liar. */
+  altitudeZeroed = false;
+  for (uint8_t attempt = 1; attempt <= ALT_ZERO_ATTEMPTS; attempt++) {
+    float candidate = bme.readAltitude(SEA_LEVEL_HPA);
+
+    if (isfinite(candidate) &&
+        candidate >= ALT_ZERO_MIN_M && candidate <= ALT_ZERO_MAX_M) {
+      baseAltitude   = candidate;
+      altitudeZeroed = true;
+      Serial.print("[FLT] altitude zeroed at ");
+      Serial.print(baseAltitude, 1);
+      Serial.print(" m (attempt ");
+      Serial.print(attempt);
+      Serial.println(")");
+      break;
+    }
+
+    Serial.print("[FLT] altitude zero REJECTED, attempt ");
+    Serial.print(attempt);
+    Serial.print("/");
+    Serial.print(ALT_ZERO_ATTEMPTS);
+    Serial.print(", read ");
+    Serial.println(candidate, 1);
+    delay(ALT_ZERO_RETRY_MS);
+  }
+
+  if (!altitudeZeroed) {
+    /* Loud, and on the OLED too — this is not a warning to find in a log afterwards.
+     * The unit will fly and report; it simply cannot release itself. */
+    Serial.println("[FLT] ALTITUDE NOT ZEROED - the barometer never returned a "
+                   "plausible value");
+    Serial.println("[FLT] AUTO-EJECT IS INERT. alt will read 0.0. The uplink still "
+                   "works - EJECT from the ground.");
+    displayMessage("BARO FAILED", "alt not zeroed", "AUTO-EJECT OFF", "uplink still OK");
+    delay(2000);
+  }
 
   displayMessage("Calibration", "Complete", "", "");
   delay(800);
@@ -221,6 +266,28 @@ void gpsFeed() {
 #endif
 }
 
+/* ---- altitude -------------------------------------------------------------- */
+
+/* One altitude read, zeroed against the boot baseline.
+ *
+ * Extracted in devlog 071 because the apogee trigger now samples on its own schedule
+ * (AUTO_EJECT_SAMPLE_MS) rather than only once per telemetry cycle, and BOTH callers
+ * must zero it identically. A second copy of `alt - baseAltitude` is how the packet and
+ * the trigger would come to disagree about how high the vehicle is — the same class of
+ * divergence CHUTE_PIN, the sync word and the GPS pins have each cost a session.
+ *
+ * Returns 0.0 rather than a raw altitude when calibration has not run, exactly as this
+ * always did. That is the safe direction: 0.0 can never pass AUTO_EJECT_ARM_ALT_M, so an
+ * uncalibrated vehicle cannot arm.
+ *
+ * ⚠ Passes a NaN from a failing sensor straight through. Rejecting it is the trigger's
+ * job and is done in apogeeUpdate() — Packet.ino needs the NaN to reach it so the frame
+ * is dropped rather than carrying an invented number. Two consumers, two right answers. */
+float sensorsAltitude() {
+  float alt = bme.readAltitude(SEA_LEVEL_HPA);
+  return altitudeZeroed ? (alt - baseAltitude) : 0.0f;
+}
+
 /* ---- per-cycle read -------------------------------------------------------- */
 
 void sensorsRead(Telemetry &t) {
@@ -230,8 +297,7 @@ void sensorsRead(Telemetry &t) {
   t.hum  = bme.readHumidity();
   t.pres = bme.readPressure() / 100.0F;
 
-  float alt = bme.readAltitude(SEA_LEVEL_HPA);
-  t.alt = altitudeZeroed ? (alt - baseAltitude) : 0.0f;
+  t.alt = sensorsAltitude();
 
   float ax, ay, az, gx, gy, gz;
   mpuRawReadings(ax, ay, az, gx, gy, gz);

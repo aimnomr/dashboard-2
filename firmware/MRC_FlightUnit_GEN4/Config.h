@@ -140,16 +140,44 @@
  * altitude never arms, and the uplink remains the only path. Never arming is a
  * recoverable disappointment; arming on the pad is not.
  *
- * AUTO_EJECT_CONFIRM_N is measured in CYCLES, so at CYCLE_PERIOD_MS = 1000 it is
- * also seconds. Each cycle of confirmation costs real altitude — roughly 6 m
- * against the wiki's modelled descent, and 30 m or more in genuine freefall —
- * and buys immunity to a single anomalous pressure reading. 3 is the chosen
- * balance, not a floor: 1 is legitimate if the barometer proves quiet in flight.
+ * AUTO_EJECT_CONFIRM_N is measured in SAMPLES, and since devlog 071 a sample is
+ * AUTO_EJECT_SAMPLE_MS rather than a whole telemetry cycle. It used to be counted in
+ * 1000 ms cycles, which made three confirmations cost 2 s and 30 m or more in genuine
+ * freefall. At 125 ms the same three cost 250 ms, and buy the same thing they always
+ * did: immunity to a single anomalous pressure reading.
+ *
+ * ⚠ Raising the sample rate SHORTENS the window three confirmations span, so it also
+ * shortens the excursion this can filter. Three samples at 8 Hz reject a glitch up to
+ * ~250 ms; three at 1 Hz rejected one up to ~2 s. That is the trade, and it is the
+ * right way round for a trigger whose cost is measured in metres of altitude — but if
+ * the barometer proves noisy in flight, raise CONFIRM_N rather than lowering the rate.
+ * At 8 Hz the ceiling of 10 is still only 1.25 s.
  */
 #define ENABLE_AUTO_EJECT       1
 #define AUTO_EJECT_ARM_ALT_M    30.0f  /* must climb past this before it can fire  */
 #define AUTO_EJECT_DROP_M       10.0f  /* apogee - alt that counts as descending   */
-#define AUTO_EJECT_CONFIRM_N    3      /* consecutive qualifying cycles to fire    */
+#define AUTO_EJECT_CONFIRM_N    3      /* consecutive qualifying SAMPLES to fire   */
+
+/* How often the trigger takes its own altitude sample, independent of the 1 Hz
+ * telemetry cadence. See devlog 071.
+ *
+ * ⚠ THE BAROMETER IS THE RATE LIMIT, NOT THIS NUMBER. Sensors.ino calls bme.begin()
+ * without setSampling(), so the Adafruit default applies: MODE_NORMAL with 16x
+ * oversampling on temperature, pressure and humidity, FILTER_OFF, 0.5 ms standby.
+ * A conversion at 16x takes ~98 ms typical and ~113 ms worst case, and in normal mode
+ * the data registers only update at that rate — so reading faster than ~10 Hz returns
+ * the SAME conversion twice and counts one physical measurement as two confirmations.
+ *
+ * 125 ms sits just above the worst-case conversion, so every sample is a fresh one.
+ * Going faster means dropping oversampling, which roughly doubles pressure noise for
+ * every halving — and a noisier `drop` against a fixed threshold is more of exactly
+ * the glitch CONFIRM_N is spending time to reject. Not a good trade.
+ *
+ * ⚠ Sampling is NOT uniform. The main loop blocks inside radio.transmit() for ~231 ms,
+ * plus the SD write and the OLED, so roughly 700 ms of every 1000 has a poll loop
+ * running. Expect ~5-6 samples a second with a gap after the transmit. CONFIRM_N counts
+ * samples rather than time, so a gap DELAYS the decision; it never resets it. */
+#define AUTO_EJECT_SAMPLE_MS    125
 
 /* Bounds on what SET will accept. An out-of-range value is REJECTED, never clamped.
  *
@@ -170,6 +198,22 @@
 
 /* ---- SENSORS -------------------------------------------------------------- */
 #define BME_ADDR          0x76
+
+/* Plausibility band on the altitude baseline captured at the end of calibration.
+ * See sensorsCalibrate() and devlog 071 — a baseline captured during a BME280 failure
+ * poisons every altitude for the whole flight, which is devlog 065 fault 3.
+ *
+ * Deliberately wide: this is a sanity check, not a site survey. The lowest dry land on
+ * earth is about -430 m and the highest plausible launch site is a few thousand; the
+ * failure this rejects read about -1740 m alongside a pressure of -164 hPa, so the band
+ * does not need to be tight to catch it. Narrow it and it starts rejecting real sites.
+ *
+ * ⚠ Not a runtime setting and not mirrored anywhere. If it ever becomes either, it joins
+ * the list of constants this project has watched drift. */
+#define ALT_ZERO_MIN_M    -500.0f
+#define ALT_ZERO_MAX_M    5000.0f
+#define ALT_ZERO_ATTEMPTS       5
+#define ALT_ZERO_RETRY_MS     200
 #define MPU_ADDR          0x68
 #define MPU_ACCEL_RANGE   0x10     /* register 0x1C: +/-8 g   -> 4096 LSB/g   */
 #define MPU_GYRO_RANGE    0x08     /* register 0x1B: +/-500 dps -> 65.5 LSB/dps */

@@ -75,7 +75,7 @@ SPIClass        sdSPI(HSPI);
 Telemetry tm;                       /* this cycle's readings */
 
 uint32_t seqNumber      = 0;        /* monotonic packet counter from boot */
-uint32_t chuteCommands  = 0;        /* eject commands received. 0 = armed */
+uint32_t chuteCommands  = 0;        /* releases PERFORMED, either path. 0 = armed  */
 bool     loraReady      = false;
 bool     sdReady        = false;
 
@@ -154,6 +154,48 @@ void setup() {
   nextCycleAt = millis();
 }
 
+/* The one place a heard EJECT becomes a driven mechanism and a counted release.
+ *
+ * FOUR sites now service the uplink — the front window's pre-arm check, the front
+ * window's poll loop, the gap between the sensor read and the transmit, and the
+ * back-half hold — and a fifth added later must call this rather than grow a fifth
+ * copy of the same three lines. The front window and the back half drifting apart is
+ * exactly what devlog 065 recorded as fault 2, and Radio.ino already warns that two
+ * copies of the token matching is how the entry 033 mismatch got written. Same
+ * reasoning, one level up.
+ *
+ * Gated on chuteFire()'s return, so `chute` counts RELEASES PERFORMED: a repeat that
+ * lands while the drive latch holds moves nothing. Receipt is `ul`'s job and it counts
+ * every packet regardless. See devlog 067.
+ *
+ * ⚠ A rise here means the servo was DRIVEN. There is no feedback sensor anywhere in
+ * this system, so it never means the parachute opened. */
+void chuteFireFromUplink() {
+  if (!chuteFire()) return;
+
+  chuteCommands++;
+  Serial.print("[FLT] EJECT received, count ");
+  Serial.println(chuteCommands);
+}
+
+/* The same, for a release the vehicle decided on its own.
+ *
+ * A separate function only so the console says which path fired — that line and the SD
+ * `#` config lines are the only record of WHY, since `chute` counts both paths into one
+ * field and GEN3.1 has no room to separate them. On the ground the only tell is `chute`
+ * rising with `ul` UNCHANGED.
+ *
+ * Gated on chuteFire()'s return like every other site. It cannot fail here — apogeeUpdate()
+ * already refuses on chuteIsFired() — but written the same way so the shape does not have
+ * to be rediscovered when the guard above it moves. */
+void chuteFireFromAuto() {
+  if (!chuteFire()) return;
+
+  chuteCommands++;
+  Serial.print("[FLT] chute released by AUTO-EJECT, count ");
+  Serial.println(chuteCommands);
+}
+
 void loop() {
   nextCycleAt += CYCLE_PERIOD_MS;
 
@@ -161,21 +203,18 @@ void loop() {
    * delays. Serviced here and in both hold loops so they are met to within a poll
    * tick even on a cycle that overran. */
   chuteTick();
+  apogeeTick();
 
   /* ---- 1. LISTEN ---------------------------------------------------------
    * GPS is fed on every tick inside the window. At 9600 baud the UART FIFO
    * fills in about 130 ms, so leaving it unread for a 400 ms window would drop
    * NMEA sentences. */
   if (ENABLE_UPLINK) {
-    /* Counted on the DRIVE, not on receipt. chuteFire() returns false for every repeat
-     * that lands while the latch holds, so the four remaining attempts of one operator
-     * burst move nothing — `chute` rises once per release. Receipt is `ul`'s job and it
-     * still counts every packet, including the ones ignored here. */
-    if (radioListenForEject(LISTEN_WINDOW_MS) && chuteFire()) {
-      chuteCommands++;
-      Serial.print("[FLT] EJECT received, count ");
-      Serial.println(chuteCommands);
-    }
+    /* Nothing to gate or count here any more. radioListenForEject() drives and counts
+     * on the tick it hears a command, through chuteFireFromUplink(), rather than
+     * reporting at window close for this line to act on — up to ~395 ms sooner. See
+     * devlog 069. */
+    radioListenForEject(LISTEN_WINDOW_MS);
   } else {
     holdUntil(millis() + LISTEN_WINDOW_MS);
   }
@@ -183,22 +222,38 @@ void loop() {
   /* ---- 2. SENSORS -------------------------------------------------------- */
   sensorsRead(tm);
 
-  /* ---- 2b. AUTO-EJECT ----------------------------------------------------
-   * Placed between the sensor read and the packet build deliberately: a release
-   * decided here is visible in THIS cycle's `chute`, not the next one. A second's
-   * delay would be invisible on the ground and is free to avoid.
+  /* ---- 2a. SERVICE THE UPLINK ONCE MORE ----------------------------------
+   * The radio stays armed across the sensor read — radioListenForEject() deliberately
+   * does not standby() — so a command arriving in that ~15 ms is HELD by the SX1262
+   * rather than lost. Held, but only until something reads it: the next two things to
+   * touch the radio are radio.transmit() below, which switches it to TX outright, and
+   * the radioArmReceive() after it, whose startReceive() discards whatever an unread
+   * receiver was holding. Between the listen window closing and this line, nothing
+   * polled DIO1 at all, so that command was silently destroyed and cost a whole retry
+   * — 351 ms — to recover. See devlog 069.
    *
-   * Counted into chuteCommands exactly like an uplink command, because the field means
-   * "release performed" and this is a release performed. Gated on chuteFire()'s return
-   * for the same reason the uplink path is, though it cannot fail here: apogeeUpdate()
-   * already refuses on chuteIsFired(), so the latch cannot be set when this is reached.
-   * Written as the same shape anyway — a guard that is currently unreachable is cheaper
-   * than one that is missing when the guard above it moves. */
-  if (apogeeUpdate(tm.alt) && chuteFire()) {
-    chuteCommands++;
-    Serial.print("[FLT] chute released by AUTO-EJECT, count ");
-    Serial.println(chuteCommands);
-  }
+   * Placed BEFORE the auto-eject check on purpose: a commanded release decided here
+   * is visible in THIS cycle's `chute`, and apogeeUpdate() then correctly refuses on
+   * chuteIsFired() rather than claiming the same release as automatic. */
+  if (ENABLE_UPLINK && radioServiceUplink()) chuteFireFromUplink();
+
+  /* ---- 2b. AUTO-EJECT ----------------------------------------------------
+   * The trigger no longer rides this cycle. apogeeTick() takes its own altitude sample
+   * every AUTO_EJECT_SAMPLE_MS from all four poll loops, so the rule advances ~8 times a
+   * second instead of once — three confirmations cost ~250 ms rather than 2 s. See
+   * devlog 071.
+   *
+   * Still CALLED here, and here specifically, because it is throttled: a sample falling
+   * due around now is taken immediately before the packet is built, so a release decided
+   * on it is visible in THIS cycle's `chute` rather than the next one. That alignment is
+   * a tendency now rather than a guarantee — with ~6 sample points a second, most
+   * releases are reported on the following packet, up to ~1 s later. That is a REPORTING
+   * delay and not an actuation one; the mechanism is driven the moment the rule decides.
+   *
+   * ⚠ tm.alt is no longer what the trigger reads. Both come from sensorsAltitude() so
+   * they cannot disagree, but the trigger's sample is its own and is usually a different,
+   * later one than the sample in this cycle's packet. */
+  apogeeTick();
 
   /* ---- 3. TRANSMIT ------------------------------------------------------- */
   seqNumber++;
@@ -285,6 +340,7 @@ void holdUntil(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
     chuteTick();
+    apogeeTick();
     delay(1);
   }
 }
@@ -302,17 +358,18 @@ void holdUntil(uint32_t deadlineMs) {
  * landing in the back half counted every attempt and one landing in the front counted
  * one — the asymmetry devlog 065 recorded as fault 2. Counting on the drive removes it
  * from `chute` entirely; the two paths still differ for `ul`, which is correct, because
- * `ul` is a count of packets and this is a count of releases. */
+ * `ul` is a count of packets and this is a count of releases.
+ *
+ * Since 069 the front window fires on receipt too, so the two paths no longer differ
+ * in WHEN they drive either — both go through chuteFireFromUplink() on the tick the
+ * command is heard. */
 void holdUntilListening(uint32_t deadlineMs) {
   while ((int32_t)(deadlineMs - millis()) > 0) {
     gpsFeed();
     chuteTick();
+    apogeeTick();
 
-    if (ENABLE_UPLINK && radioServiceUplink() && chuteFire()) {
-      chuteCommands++;
-      Serial.print("[FLT] EJECT received, count ");
-      Serial.println(chuteCommands);
-    }
+    if (ENABLE_UPLINK && radioServiceUplink()) chuteFireFromUplink();
 
     delay(LISTEN_TICK_MS);
   }

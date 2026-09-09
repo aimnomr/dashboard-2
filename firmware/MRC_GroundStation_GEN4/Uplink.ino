@@ -22,13 +22,25 @@
  *      spacing <= LISTEN_WINDOW  and  span >= CYCLE_PERIOD  =>  guaranteed hit
  *
  *  At 300 ms spacing (~351 ms including airtime) against the vehicle's 400 ms
- *  window and 1000 ms cycle, three consecutive attempts span 702 ms, wider than
- *  the 600 ms deaf period, so three in a row cannot all miss.
+ *  window and 1000 ms cycle, two consecutive attempts span 702 ms, comfortably
+ *  wider than the deaf period, so two in a row cannot both miss.
  *
- *  IMPORTANT: that guarantee depends on the spacing staying under the vehicle's
- *  LISTEN_WINDOW_MS. At 300 vs 400 ms the margin is 49 ms. Shortening the
- *  vehicle's window without shortening EJECT_RETRY_MS turns this back into a
- *  probability, silently.
+ *  ⚠ "The 600 ms deaf period" is what this comment used to say, and it described
+ *  the arrangement devlog 044 replaced — a blind 354 ms delay in the back half of
+ *  the cycle, on top of the sensor read and the transmit. The vehicle now listens
+ *  through the back half, and since devlog 069 it also services the uplink in the
+ *  gap between the sensor read and the transmit. The deaf stretch is the TRANSMIT
+ *  ITSELF, ~231 ms of a 1000 ms cycle — the radio is half duplex and that part is
+ *  irreducible. Stale in the safe direction: the guarantee is stronger than the
+ *  old arithmetic claimed, not weaker.
+ *
+ *  IMPORTANT: the guarantee depends on the spacing staying under the vehicle's
+ *  LISTEN_WINDOW_MS and OVER its deaf stretch. At 351 vs 400 ms the upper margin
+ *  is 49 ms; against ~231 ms of transmit the lower margin is ~120 ms. Shortening
+ *  the vehicle's window without shortening EJECT_RETRY_MS breaks the first;
+ *  shortening EJECT_RETRY_MS below the transmit time breaks the second and lets
+ *  two consecutive attempts land in one deaf window. Either turns this back into
+ *  a probability, silently.
  * ========================================================================= */
 
 static char    serialLine[SERIAL_LINE_BUF];
@@ -71,6 +83,29 @@ void uplinkPoll() {
     bool sent = radioTransmit(PING_TOKEN);
     Serial.print("[GCS] PING sent blind (no packets to time against)");
     Serial.println(sent ? "" : " - FAILED TO TRANSMIT");
+  }
+
+  /* Age out a confirmation that is never going to arrive. Done here, on a tick that
+   * runs unconditionally, because radioPoll() only runs when a packet is waiting — and
+   * the cases this exists for are exactly the ones where packets stop coming, or where
+   * `chute` will never rise at all:
+   *
+   *   SINGLE mode      the vehicle's latch never expires, a second EJECT drives
+   *                    nothing, and no packet can ever satisfy the test
+   *   out of range     the vehicle is still flying and still releasing, but nothing
+   *                    is being heard
+   *
+   * Left set, the flag would later explain an UNRELATED rise as confirming a command
+   * the operator has long since moved on from.
+   *
+   * Confirms nothing, blocks nothing, moves no baseline: ejectConfirmed stays false, so
+   * the very next EJECT is treated as an ordinary first attempt, which is correct. */
+  if (ejectAwaitingConfirm &&
+      (uint32_t)(millis() - ejectAwaitingConfirmMs) > EJECT_CONFIRM_TIMEOUT_MS) {
+    ejectAwaitingConfirm = false;
+    Serial.println("[GCS] EJECT confirmation timed out - no chute rise seen, "
+                   "assume it was NOT received");
+    Serial.println("[GCS] `ul` rising without `chute` would mean heard but not driven");
   }
 }
 
@@ -155,6 +190,19 @@ void handleCommand(const char *line) {
     if (fireConfigBurst(RESET_CHUTE_TOKEN)) {
       ejectConfirmed = false;
       chuteBaseline  = (baselineAtReset >= 0) ? baselineAtReset : 0;
+
+      /* Discard any confirmation still in flight from a burst sent before this reset.
+       * The baseline just moved to a value captured before fireConfigBurst() ran, and
+       * that burst polls the radio — so a delayed EJECT confirmation could land during
+       * it and then satisfy the test against the NEW baseline, printing "EJECT
+       * confirmed" immediately after the operator was told the vehicle is freshly
+       * re-armed. A rise arriving after this point is no longer safely attributable to
+       * whatever burst set the flag. Let the next EJECT set it again. */
+      if (ejectAwaitingConfirm) {
+        ejectAwaitingConfirm = false;
+        Serial.println("[GCS] pending EJECT confirmation discarded by RESET:CHUTE");
+      }
+
       Serial.print("[GCS] EJECT re-armed at ground, chute baseline ");
       Serial.println(chuteBaseline);
       Serial.println("[GCS] the next release must exceed that to confirm");
@@ -367,30 +415,32 @@ bool fireConfigBurst(const char *token) {
  * ----------------------------------------------------------------------- */
 void fireEjectBurst() {
   for (uint8_t i = 0; i < EJECT_ATTEMPTS; i++) {
-    /* Stop early if the vehicle has already reported it. radioPoll() keeps
-     * lastChute current between attempts, since receive is restored each time.
+    /* Stop sending once the vehicle has been seen to confirm. The DECISION is not
+     * made here any more — radioPoll() makes it, and radioPoll() runs on every tick of
+     * the wait loop below, so a confirmation is noticed within one LOOP_TICK_MS of
+     * arriving. Reading the shared flag rather than recomputing lastChute against
+     * chuteBaseline keeps exactly one place deciding what "confirmed" means; two
+     * copies of that boundary is how it drifts. See devlog 070.
      *
-     * Tested against chuteBaseline rather than against 1. They are the same number
-     * until RESET:CHUTE moves the baseline, and after it they are the difference
-     * between "a chute has been released at some point" and "a chute has been
-     * released since I re-armed it" — only the second is a confirmation of THIS
-     * burst. See chuteBaseline in the main sketch for why the vehicle's counter
-     * cannot simply be zeroed instead.
-     *
-     * NOTE: a rise here means the vehicle received the command and drove the
-     * servo. It does NOT mean the parachute opened — there is no feedback
-     * sensor. Nothing downstream may claim otherwise. */
-    if (lastChute > chuteBaseline) {
-      ejectConfirmed   = true;
-      ejectConfirmedMs = millis();
-      Serial.print("[GCS] EJECT confirmed after ");
+     * All this exit does now is stop wasting airtime. */
+    if (ejectConfirmed) {
+      Serial.print("[GCS] EJECT burst stopped after ");
       Serial.print(i);
-      Serial.println(" attempt(s)");
+      Serial.println(" attempt(s) - already confirmed");
       return;
     }
 
     ejectAttempts++;
     bool sent = radioTransmit(EJECT_TOKEN);
+
+    /* Set at the point of TRANSMISSION, so both exits from this function leave it set.
+     * The run-out-of-attempts exit below recorded nothing at all until 070, which is
+     * precisely how a confirmation arriving a moment too late poisoned the next EJECT.
+     *
+     * Refreshed per attempt rather than set once, so the timeout is measured from the
+     * last thing actually sent. */
+    ejectAwaitingConfirm   = true;
+    ejectAwaitingConfirmMs = millis();
 
     Serial.print("[GCS] EJECT attempt ");
     Serial.print(i + 1);
@@ -407,9 +457,21 @@ void fireEjectBurst() {
     }
   }
 
+  /* radioPoll() may have confirmed during the final attempt's wait, after the loop's
+   * own check last ran. Re-tested for the same reason fireConfigBurst() re-tests `ul`
+   * after its loop: the last iteration's wait is the one window this function would
+   * otherwise never look back at. */
+  if (ejectConfirmed) {
+    Serial.println("[GCS] EJECT confirmed during the final attempt");
+    return;
+  }
+
+  /* Not "failed". The burst is over; the wait is not. ejectAwaitingConfirm is still
+   * set, so a confirmation arriving in the next few seconds is still attributed to
+   * this burst rather than being dropped on the floor — which is the whole of 070. */
   Serial.print("[GCS] EJECT burst complete, ");
   Serial.print(EJECT_ATTEMPTS);
-  Serial.println(" sent - watch chute in telemetry");
+  Serial.println(" sent - awaiting confirmation, watch chute in telemetry");
 }
 
 /* --------------------------------------------------------------------------

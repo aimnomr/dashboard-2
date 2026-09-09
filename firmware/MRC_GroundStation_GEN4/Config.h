@@ -80,6 +80,25 @@
  * only way to re-arm a vehicle that has NOT re-armed itself — CHUTE_AUTO_REARM 0. */
 #define EJECT_REARM_MS  3000
 
+/* How long a transmitted burst waits for `chute` to rise before it stops waiting.
+ *
+ * Not a retry timer and not a cooldown — the burst is over by then. This only bounds
+ * how long `ejectAwaitingConfirm` will go on attributing a rise to that burst.
+ *
+ * LONG enough to cover the burst plus several telemetry cycles: a confirmation landing
+ * one or two cycles after the burst ends is the exact case devlog 070 exists to catch,
+ * not an edge to shave against. Burst span is ~1404 ms (EJECT_ATTEMPTS × EJECT_RETRY_MS
+ * above), so 5000 leaves ~3.6 s — three or four packets at 1 Hz.
+ *
+ * SHORT enough that a release nobody is waiting for any more cannot explain a later,
+ * unrelated rise. The case that forces this to exist at all is SINGLE mode: the
+ * vehicle's latch never expires, so a second EJECT drives nothing, `chute` never rises,
+ * and no packet will ever clear the flag.
+ *
+ * Expiry confirms nothing, blocks nothing and moves no baseline. It is the "not
+ * confirmed" answer, said out loud instead of left pending. */
+#define EJECT_CONFIRM_TIMEOUT_MS 5000
+
 /* What the VEHICLE's CHUTE_AUTO_REARM is set to, so this unit starts with the right
  * assumption about the release mode and returns to it when the vehicle reboots.
  *

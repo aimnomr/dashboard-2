@@ -127,16 +127,24 @@ bool radioServiceUplink() {
  *  The GPS parser is fed on every tick. At 9600 baud the UART FIFO fills in
  *  about 130 ms, so a 400 ms window with no reads would drop NMEA sentences.
  *
- *  Returns true if EJECT arrived. The window still runs to completion either
- *  way — leaving early would shorten the cycle and break the fixed cadence.
+ *  Returns nothing. The window still runs to completion — leaving early would
+ *  shorten the cycle and break the fixed cadence — but the RELEASE no longer waits
+ *  for it.
+ *
+ *  ⚠ Until 2026-09-09 this accumulated a bool and returned it at window close, and
+ *  the caller drove the mechanism only then. A command heard at t=5 ms of the window
+ *  was therefore not acted on until t=400 ms: up to ~395 ms of latency on the one
+ *  path in this system where latency costs a parachute. The back-half hold had always
+ *  fired per packet, inside its loop, so the two intake paths disagreed about when a
+ *  release happens as well as about how it is counted (devlog 065 fault 2, counted
+ *  half fixed in 067). Both halves now fire on receipt, through chuteFireFromUplink().
+ *  See devlog 069.
  * ----------------------------------------------------------------------- */
-bool radioListenForEject(uint32_t windowMs) {
-  bool heardEject = false;
-
+void radioListenForEject(uint32_t windowMs) {
   /* Service before arming. The hold at the end of the previous cycle now leaves the
    * radio receiving, so a packet may already be waiting with DIO1 high — and
    * startReceive() would throw it away. */
-  if (radioServiceUplink()) heardEject = true;
+  if (radioServiceUplink()) chuteFireFromUplink();
   else radioArmReceive();
 
   uint32_t windowEnd = millis() + windowMs;
@@ -156,16 +164,29 @@ bool radioListenForEject(uint32_t windowMs) {
      * the comment. Cheap: two unsigned comparisons when there is nothing to do. */
     chuteTick();
 
+    /* The apogee rule samples on its own clock too, for the same reason and from the
+     * same four loops. Self-throttled to AUTO_EJECT_SAMPLE_MS, so this is one unsigned
+     * comparison on most of the ~80 ticks in this window. See devlog 071. */
+    apogeeTick();
+
     /* Keep listening for the rest of the window even after a hit: the ground station
      * retries until it sees the count rise, and counting every arrival is what
-     * reports uplink quality. */
-    if (radioServiceUplink()) heardEject = true;
+     * reports uplink quality.
+     *
+     * Driven HERE, on the tick it is heard, rather than accumulated and acted on at
+     * window close. chuteFire() is idempotent behind its latch, so the four remaining
+     * attempts of one operator burst landing later in this same window cost a call
+     * each and move nothing. */
+    if (radioServiceUplink()) chuteFireFromUplink();
 
     delay(LISTEN_TICK_MS);
   }
 
   /* Deliberately NOT standby(). The radio stays armed across the sensor read, and is
    * re-armed immediately after the transmit, so the only deaf stretch in the cycle is
-   * the transmit itself. */
-  return heardEject;
+   * the transmit itself.
+   *
+   * ⚠ "Armed across the sensor read" is only useful if something READS what arrives
+   * there. Nothing did until 2026-09-09 — see the service call after sensorsRead() in
+   * the main sketch, and devlog 069. */
 }

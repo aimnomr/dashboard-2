@@ -166,10 +166,54 @@ void radioPoll() {
         assumedRepeat = (VEHICLE_DEFAULT_REPEAT != 0);
         Serial.println("[GCS] vehicle restarted - release mode assumption reset to default");
       }
+
+      /* chuteBegin() zeroes the vehicle's chute counter on the same restart, so
+       * lastChute is about to fall below chuteBaseline two lines down. Left alone the
+       * baseline would go on describing a release count the vehicle no longer has, and
+       * a pending confirmation would be waiting for a rise past a number now several
+       * real releases away. Both are stale the instant the vehicle restarts, and both
+       * are cleared here for the same reason assumedRepeat above is.
+       *
+       * ejectConfirmed is deliberately NOT touched. Whether a confirmed release should
+       * un-confirm on reboot is a separate question this change does not reach into —
+       * the mechanism really was driven, and the vehicle coming back does not undo it. */
+      if (ejectAwaitingConfirm || chuteBaseline != 0) {
+        ejectAwaitingConfirm = false;
+        chuteBaseline        = 0;
+        Serial.println("[GCS] vehicle restarted - chute baseline and any pending "
+                       "EJECT confirmation cleared");
+      }
     }
 
     lastChute = parseChute(received.c_str());
     lastUl    = freshUl;
+
+    /* EJECT confirmation is decided HERE, not inside fireEjectBurst(). The burst runs
+     * for ~1.4 s and the confirming packet need not land inside it — when it does not,
+     * the old code recorded nothing at all and silently swallowed the NEXT EJECT. See
+     * devlog 070 and the flag's declaration in the main sketch.
+     *
+     * Tested against chuteBaseline rather than an absolute, for the reason the burst
+     * always was: the baseline moves on RESET:CHUTE and on a cooldown re-arm, and only
+     * a rise past it is a release since the ground last re-armed. Testing `>= 1` here
+     * would be the devlog 058 bug in its fourth costume.
+     *
+     * Inside the CRC-valid branch on purpose: lastChute is deliberately left alone on a
+     * bad checksum, so an untrusted packet cannot confirm anything.
+     *
+     * ⚠ A rise means the vehicle received a command and DROVE the servo. It does not
+     * mean the parachute opened — there is no feedback sensor — and it does not prove
+     * this rise belongs to this burst rather than to the vehicle's own auto-eject.
+     * Nothing downstream may claim either. */
+    if (ejectAwaitingConfirm && lastChute > chuteBaseline) {
+      ejectAwaitingConfirm = false;
+      ejectConfirmed       = true;
+      ejectConfirmedMs     = millis();
+      Serial.print("[GCS] EJECT confirmed, chute ");
+      Serial.print(chuteBaseline);
+      Serial.print(" -> ");
+      Serial.println(lastChute);
+    }
   } else {
     packetsBadCrc++;
     /* Deliberately leave lastChute alone: a failed checksum tells us nothing

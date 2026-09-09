@@ -101,8 +101,17 @@ static AutoEjectCfg cfg = {
 
 static float   apogeeAlt      = 0.0f;   /* highest alt seen, m above boot */
 static bool    apogeeArmed    = false;  /* has climbed past the arming floor */
-static uint8_t descentCycles  = 0;      /* consecutive cycles over the drop threshold */
+static uint8_t descentCycles  = 0;      /* consecutive SAMPLES over the drop threshold */
 static bool    autoEjectFired = false;  /* this file's own one-shot latch */
+
+/* millis() of the last altitude sample this file took for itself. The trigger no longer
+ * rides the telemetry cycle — see apogeeTick() and AUTO_EJECT_SAMPLE_MS. */
+static uint32_t apogeeSampledMs = 0;
+
+/* Non-finite altitudes refused by apogeeUpdate(), for the whole boot. Counted rather
+ * than merely ignored: a rising number is the only in-flight evidence that the trigger
+ * is being starved, and the packet has no field to carry it. */
+static uint32_t apogeeRejected  = 0;
 
 /* The active configuration as one line, prefixed `#` so it can be appended to the
  * SD log directly.
@@ -158,6 +167,40 @@ void apogeeBegin() {
  * `#if` GEN3 used, because SET:AUTO can flip it after the build.
  */
 bool apogeeUpdate(float alt) {
+  /* REJECT THE SAMPLE AND HOLD STATE. Nothing below this line runs, so apogeeAlt is not
+   * moved, apogeeArmed is not changed, descentCycles is neither reset nor incremented,
+   * and the latch is not touched. The rule simply does not advance on evidence it does
+   * not have, and picks up where it left off when good data returns.
+   *
+   * This is devlog 065 fault 4, and it was the dangerous one. Every comparison against
+   * NaN is false, and the rule read those falses in OPPOSITE directions:
+   *
+   *     if (alt > apogeeAlt)          false -> apogee frozen
+   *     if (!armed && alt >= armAltM) false -> cannot ARM on NaN        (pad was safe)
+   *     if (drop < cfg.dropM)         false -> descentCycles NOT reset  (and climbs)
+   *
+   * So an already-armed vehicle that started reading NaN counted to confirmN and
+   * deployed wherever it was. Session 20260909-024620 produced exactly that input on a
+   * bench: -nan altitudes, humidity pinned at 100 %, pressure at -175 hPa, and both I2C
+   * sensors out together across five restarts.
+   *
+   * The guard mattered more after devlog 071 than before it. At one sample per second
+   * three NaNs took 3 s; at AUTO_EJECT_SAMPLE_MS they take ~375 ms.
+   *
+   * ⚠ HOLDING is not the same as recovering. A barometer that fails permanently leaves
+   * the trigger frozen for the rest of the flight — it will not fire wrongly, and it
+   * will not fire at all. The uplink is the backup for that case, which is what the
+   * uplink has always been for. The count is printed rather than left silent because
+   * GEN3.1 has no packet field that could carry it. */
+  if (!isfinite(alt)) {
+    apogeeRejected++;
+    if (apogeeRejected == 1 || (apogeeRejected % 100) == 0) {
+      Serial.print("[FLT] auto-eject: non-finite altitude REJECTED, state held, count ");
+      Serial.println(apogeeRejected);
+    }
+    return false;
+  }
+
   if (alt > apogeeAlt) apogeeAlt = alt;
 
   if (!apogeeArmed && alt >= cfg.armAltM) {
@@ -199,8 +242,50 @@ bool apogeeUpdate(float alt) {
   Serial.print(drop, 1);
   Serial.print(" m over ");
   Serial.print(cfg.confirmN);
-  Serial.println(" cycles");
+  Serial.println(" samples");
   return true;
+}
+
+/* --------------------------------------------------------------------------
+ *  The trigger's own clock. Called from every poll loop in the cycle, like
+ *  chuteTick(), and self-throttled to one altitude read per AUTO_EJECT_SAMPLE_MS.
+ *
+ *  Until devlog 071 the rule ran exactly once per telemetry cycle, so confirmN was
+ *  counted in whole seconds: three confirmations cost 2 s of fall plus up to another
+ *  second of sampling granularity — 57 to 96 m in freefall, for a decision the
+ *  barometer could have supported eight times over in the same span.
+ *
+ *  Decoupling the two is the whole change. Telemetry stays at 1 Hz — this is NOT the
+ *  2 Hz proposal rejected in devlog 036, and no packet is sent any faster — while the
+ *  trigger samples at the rate the SENSOR can actually support.
+ *
+ *  ⚠ AUTO_EJECT_SAMPLE_MS is set just above the BME280's worst-case conversion time,
+ *  so every sample is a fresh measurement. Read faster and the same conversion is
+ *  counted twice, which would let ONE physical measurement satisfy two confirmations —
+ *  the exact thing confirmN exists to prevent. The reasoning and the numbers are in
+ *  Config.h; do not lower it without reading them.
+ *
+ *  Cooperative, not a second task. The ESP32-S3 has a spare core, but the barometer is
+ *  the rate limit rather than the CPU, so a parallel task would sample no faster while
+ *  putting a mutex between two contexts on an I2C bus that dropped both sensors in
+ *  session 20260909-024620, and making chuteFire() reentrant across cores. All cost,
+ *  no gain.
+ * ----------------------------------------------------------------------- */
+void apogeeTick() {
+  uint32_t now = millis();
+  if ((uint32_t)(now - apogeeSampledMs) < AUTO_EJECT_SAMPLE_MS) return;
+  apogeeSampledMs = now;
+
+  /* Sampled even when the trigger is switched off, because apogeeUpdate() tracks the
+   * highest altitude seen whether or not it is allowed to act on it, and an apogee
+   * figure is worth having on a flight that never arms. */
+  if (apogeeUpdate(sensorsAltitude())) chuteFireFromAuto();
+}
+
+/* How many samples the trigger has refused. Nothing reads this yet — it exists so a
+ * bench session can ask, and so the number has a name. */
+uint32_t apogeeRejectedCount() {
+  return apogeeRejected;
 }
 
 /* ---- uplink commands ------------------------------------------------------- */

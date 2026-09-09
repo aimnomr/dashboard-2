@@ -71,3 +71,6 @@ One line per entry, appended in order. Entries are immutable — see
 - 2026-09-09 · 066 · The GPS reaches a fix, and two vehicles were on one channel
 - 2026-09-09 · 067 · `chute` counts releases performed, not eject packets received
 - 2026-09-09 · 068 · The eject control leaves the dashboard, and the attitude panel stops judging
+- 2026-09-09 · 069 · The release fires on receipt, and the gap before the transmit is no longer deaf
+- 2026-09-10 · 070 · EJECT confirmation moves to where the evidence arrives
+- 2026-09-10 · 071 · The trigger gets its own clock, and stops trusting a NaN

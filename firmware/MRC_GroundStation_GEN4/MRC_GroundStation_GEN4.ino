@@ -62,6 +62,37 @@ uint8_t  ejectAttempts  = 0;
  * false; never read in that state. See EJECT_REARM_MS in Config.h. */
 uint32_t ejectConfirmedMs = 0;
 
+/* True from the moment a burst has actually TRANSMITTED at least one EJECT, until the
+ * vehicle is seen to confirm it, the vehicle reboots, RESET:CHUTE discards it, or it
+ * ages out.
+ *
+ * It exists because confirmation is not something a blocking function can wait for.
+ * fireEjectBurst() runs for ~1.4 s and the confirming packet is not guaranteed to land
+ * inside that — two of the three real bursts in devlog 065's log confirmed AFTER the
+ * burst had given up. The old code recorded nothing on that exit, so `ejectConfirmed`
+ * stayed false while `lastChute` had already risen past `chuteBaseline`; the next EJECT
+ * then skipped the re-arm block, tested the stale baseline on its first iteration,
+ * printed "confirmed after 0 attempt(s)" and TRANSMITTED NOTHING. See devlog 070.
+ *
+ * Confirmation is decided in radioPoll(), where the evidence actually arrives — the
+ * same place the vehicle-reboot detection already lives.
+ *
+ * ⚠ `chute` cannot say WHY it rose. An auto-eject release moves the same counter an
+ * operator EJECT does, so a rise seen while this is true may be the vehicle acting on
+ * its own rather than this burst landing. That ambiguity is older than this flag — the
+ * in-burst test had it too — and GEN3.1 carries no field that would resolve it. */
+bool     ejectAwaitingConfirm = false;
+
+/* millis() at the last transmitted attempt of the burst this is waiting on, refreshed
+ * per attempt. Ages the flag out — see EJECT_CONFIRM_TIMEOUT_MS in Config.h.
+ *
+ * Without it the flag can wait forever: in SINGLE mode a second EJECT drives nothing,
+ * so `chute` never rises and no packet can ever clear it. A flag stuck true would then
+ * explain a LATER, unrelated rise as confirming a command the operator has moved on
+ * from. radioPoll() only runs when a packet is waiting, so the ageing has to happen on
+ * an unconditional tick instead — uplinkPoll(), where PING's blind send already is. */
+uint32_t ejectAwaitingConfirmMs = 0;
+
 /* What this unit believes the vehicle's release mode to be — MULTI (the drive latch
  * expires) or SINGLE (only RESET:CHUTE re-arms).
  *

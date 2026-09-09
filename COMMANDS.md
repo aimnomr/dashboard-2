@@ -219,7 +219,7 @@ python -m devtools.send_command RESET:CHUTE
 | `RESET:CHUTE` | the above, **plus clear the fire latch** — makes a fired chute fireable again, *immediately* | — |
 | `SET:DROP:<m>` | metres below peak before firing | 2.0 – 100.0 |
 | `SET:ARM:<m>` | altitude above boot before the trigger arms | 5.0 – 200.0 |
-| `SET:CYCLES:<n>` | consecutive confirming cycles | 1 – 10 |
+| `SET:CYCLES:<n>` | consecutive confirming **samples** — 125 ms each since 2026-09-10, not 1 s | 1 – 10 |
 | `SET:AUTO:<0\|1>` | enable/disable auto-eject | 0 or 1 |
 | `SET:REPEAT:<0\|1>` | release mode: **1** MULTI, the drive latch expires; **0** SINGLE, only `RESET:CHUTE` re-arms | 0 or 1 |
 
@@ -242,10 +242,19 @@ python -m devtools.send_command RESET:CHUTE
   applied.** A sealed, flying vehicle cannot be asked what it is configured to do — bench
   USB and the SD card `#` lines answer that afterwards. (Declined GEN3.2 bump, twice.)
 - **Never test the uplink with EJECT.** Use PING.
-- **After any release, `EJECT` transmits nothing until the vehicle has re-armed.**
-  `fireEjectBurst()` tests `lastChute > chuteBaseline` and prints `EJECT confirmed after 0
-  attempt(s)` without sending. True about the chute; not evidence the uplink works. This
-  is why an automatic release makes the button useless as a link test — use `PING`.
+- **After a CONFIRMED release, `EJECT` is refused by name until the cooldown passes** —
+  `EJECT already confirmed, ignoring`, with the reason given. It no longer *silently*
+  transmits nothing.
+
+  Until 2026-09-10 a burst whose confirmation arrived late left `ejectConfirmed` false
+  with `chuteBaseline` already passed, and the next `EJECT` printed `EJECT confirmed after
+  0 attempt(s)` and sent nothing at all — a release the operator was shown that never
+  happened. That was devlog 065 fault 1, fixed in 070 by moving the confirmation decision
+  into `radioPoll()`. **A rise can no longer confirm anything unless a burst is actually
+  outstanding.** If you are reading a log captured before 2026-09-10, that message may be
+  reporting a command that was never transmitted.
+
+  An automatic release is still not a link test — use `PING`.
 - **`SET:REPEAT` chooses the release mode, and it governs the COMMANDED path only.**
   `1` (MULTI) lets the vehicle's drive latch expire after `CHUTE_REARM_MS`, so repeat
   releases can be commanded. `0` (SINGLE) restores one drive per boot, with `RESET:CHUTE`
@@ -259,6 +268,38 @@ python -m devtools.send_command RESET:CHUTE
   carries no config fields, so neither the ground nor the dashboard can see the vehicle's
   actual mode. The `#` config lines on the SD card are the only true record, after
   recovery, and they now carry `repeat=`.
+- **What the console says during and after a burst.** Changed 2026-09-10 (devlog 070) —
+  confirmation is now decided when the packet arrives, not inside the burst, so the
+  messages come from two different places and mean different things:
+
+  ```
+  [GCS] EJECT armed
+  [GCS] EJECT attempt 1/5                     ... up to 5, ~351 ms apart
+  [GCS] EJECT confirmed, chute 4 -> 5         from radioPoll(), the moment it lands
+  [GCS] EJECT burst stopped after 2 attempt(s) - already confirmed
+  ```
+
+  `EJECT confirmed, chute X -> Y` is the only line that means a release happened. It can
+  appear **after** the burst has ended — that is the point of the change — in which case
+  the burst prints:
+
+  ```
+  [GCS] EJECT burst complete, 5 sent - awaiting confirmation, watch chute in telemetry
+  ```
+
+  and the confirmation follows a second or two later. If it never comes:
+
+  ```
+  [GCS] EJECT confirmation timed out - no chute rise seen, assume it was NOT received
+  ```
+
+  after `EJECT_CONFIRM_TIMEOUT_MS` (5 s). **Timing out blocks nothing** — the next
+  `EJECT` is treated as an ordinary first attempt and transmits immediately.
+
+  The old `EJECT confirmed after N attempt(s)` is gone: N is not knowable once the packet
+  may arrive cycles after the burst that caused it. `chute X -> Y` says only what is
+  actually known.
+
 - **A second `EJECT` is allowed once the cooldown has passed (061).** The vehicle returns
   its mechanism to ARMED `CHUTE_HOLD_MS` after driving it and clears its own fire latch at
   `CHUTE_REARM_MS` (3 s), so the console mirrors that with `EJECT_REARM_MS` and stops
@@ -313,11 +354,42 @@ python -m devtools.send_command RESET:CHUTE
   **Receipt is `ul`'s job and is unchanged** — it still rises on every uplink packet the
   vehicle hears, including the burst attempts this counter now ignores. `chute` rising
   with `ul` UNCHANGED remains the only ground-side proof a release was automatic.
+- **`SET:CYCLES` counts SAMPLES, and a sample is 125 ms — not 1 s.** Changed 2026-09-10
+  (devlog 071). The trigger no longer runs once per telemetry cycle; it samples altitude
+  on its own clock at `AUTO_EJECT_SAMPLE_MS` while telemetry stays at 1 Hz. The command,
+  its wire format and its bounds (1–10) are all unchanged — only what a unit *means* is.
+
+  ```
+  SET:CYCLES:3   ->  ~250 ms of confirmation   (was 2000 ms)
+  SET:CYCLES:10  ->  ~1.25 s                   (still faster than the old 3)
+  ```
+
+  Total detection from apogee falls from ~3.4–4.4 s to **~1.7–1.8 s**, most of which is
+  now the physical fall to `DROP` rather than the trigger. **If you are reading a log
+  from before 2026-09-10, `cycles=3` in an SD `#` line meant two seconds.**
+
+  ⚠ The window three confirmations span is now ~250 ms, so they filter a ~250 ms
+  excursion rather than a ~2 s one. If the barometer proves noisy in flight, **raise
+  `SET:CYCLES` rather than expecting the old behaviour** — 10 samples is 1.25 s and still
+  beats the old 3.
+- **`SET:CYCLES` above ~8 Hz is not available, and the barometer is why.** The BME280 at
+  the firmware's sampling settings takes ~113 ms worst case per conversion, so sampling
+  faster would count one physical measurement as two confirmations. The rate is fixed at
+  compile time and is deliberately not a `SET`.
 - **`RESET` re-bases the trigger, it does not cancel it.** Arming tests altitude above
   BOOT, not a climb, so a vehicle still high when `RESET` arrives re-arms on the next
   cycle against a fresh apogee and fires again once it has dropped `DROP` from there.
   Traced: `RESET` at 150 m re-armed at 140 m and fired at 120 m. `SET:AUTO:0` is the
   cancel.
+- **A non-finite altitude is rejected and the trigger holds its state** (071). It cannot
+  fire on NaN, and it does not reset a confirmation already in progress either. A
+  barometer that fails permanently leaves auto-eject inert for the rest of the flight —
+  it will not fire wrongly and it will not fire at all, so **the uplink is the backup for
+  that case.** Watch for `[FLT] auto-eject: non-finite altitude REJECTED` on the raw feed.
+- **A vehicle that could not zero its altitude at boot cannot auto-eject at all** (071).
+  If the baseline fails the plausibility band, the unit says so on serial and on the OLED,
+  reports `alt` as 0.0, and flies with the trigger inert. Everything else — telemetry, the
+  uplink, `EJECT` from the ground — still works.
 - Validation lives in `dashboard.api.translate_command`, not in this script. The bounds
   above are duplicated in three places — `api.py`, the GEN4 ground station, the GEN4
   vehicle — and must be changed together.

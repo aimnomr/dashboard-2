@@ -120,14 +120,20 @@ reached by accident at the pad.
 - **`arduino-cli` is not installed on Aiman's machine.** No firmware change in this repo
   has ever been compiled here. Never report firmware as verified — write "not compiled
   and not flashed", the way the devlog entries do.
-- **`chute` counts eject packets RECEIVED, not releases performed.** One operator EJECT
-  can move it by 3. It is not a release count and must never be rendered as one.
+- **`chute` counts RELEASES PERFORMED — one per operator EJECT.** Changed 2026-09-09
+  (devlog 067): the increment is gated on `chuteFire()`'s return, so a repeat landing
+  inside the drive latch moves nothing. Before that it rose per packet received and one
+  EJECT typically moved it by 3 — **any log captured before 2026-09-09 is the old
+  behaviour.** It still means the servo was DRIVEN, never that a parachute opened, and
+  must never be rendered as one.
 - **There is no acknowledgement on the link.** `ul` rising proves the vehicle *heard* a
   command — not that it applied it, and not which one arrived. Every confirmation in this
   system is indirect and is labelled as such. Preserve that labelling.
-- **The absolute-test bug has appeared three times** (devlog 058, 063, 065): testing a
+- **The absolute-test bug has appeared four times** (devlog 058, 063, 065, 070): testing a
   monotonic counter against a constant where a *baseline* was needed. If you are writing
-  `chute > 0` or `>= 1`, stop and think about baselines.
+  `chute > 0` or `>= 1`, stop and think about baselines. 070 found the sharper version of
+  it — a baseline is not enough if the comparison is made somewhere that cannot observe
+  the answer arriving.
 - **Mirrored constants drift silently.** `CHUTE_PIN` (057), the sync word (060), the GPS
   pins (062) and `VEHICLE_DEFAULT_REPEAT` (064) all diverged across files. Auto-eject
   bounds now live in five places, and `EJECT_REARM_MS`/`CHUTE_REARM_MS` in three
@@ -139,28 +145,42 @@ reached by accident at the pad.
 - **GPS pins moved twice** (042, then 062) and the second move is *not* a revert of the
   first. Read 062 before "fixing" them back.
 
-## State as of 2026-09-09
+## State as of 2026-09-10
 
-Branch `feature/apogee-trigger`. Devlogs run to **065**. Backend 154, frontend 107, both
-passing; `verify_gen3.py` 14/14.
+Branch `feature/dashboard-update`. Devlogs run to **071**. Backend 184 (+1 strict
+`xfail`), frontend 121, both passing; `verify_gen3.py` 14/14.
 
-**Four faults from devlog 065 are open and none are fixed:**
+**All four faults from devlog 065 are now closed in code:**
 
-1. An EJECT burst that runs out of attempts records nothing, leaving a stale
-   `chuteBaseline` — so the *next* EJECT reports "confirmed after 0 attempt(s)" and
-   transmits nothing at all. Two of three real bursts ended this way.
-2. `chute` undercounts in the front listen window: `radioListenForEject()` returns a
-   bool, so two eject packets inside one 400 ms window count `chute +1` against `ul +2`.
-3. The BME280 on the current flight unit failed mid-run and the restart captured
-   `baseAltitude` during the corruption. `alt` now reads about −1740 m.
-4. **A NaN altitude fires the auto-eject trigger rather than disarming it.** No
-   `isnan`/`isfinite` guard exists anywhere in the flight firmware; `drop < cfg.dropM` is
-   false for NaN, so `descentCycles` is never reset and climbs to `confirmN`. It cannot
-   arm *from* NaN, so the pad is safe — but an already-armed vehicle that starts reading
-   NaN deploys wherever it is.
+1. ~~An EJECT burst that runs out of attempts records nothing~~ — **fixed in 070.**
+   Confirmation moved out of `fireEjectBurst()` into `radioPoll()`, where the packet
+   actually arrives. `ejectConfirmed = true` now happens in exactly one place.
+2. ~~`chute` undercounts in the front listen window~~ — **fixed in 067**, by counting on
+   the drive rather than on receipt. See the `chute` trap above.
+3. ~~The BME280 failed and `baseAltitude` was captured during the corruption~~ —
+   **cleared on hardware** (066: 11,528 NaN-free packets after 03:48 on 2026-09-09), and
+   the **code half fixed in 071**: the baseline is now retried and plausibility-banded,
+   and a vehicle that cannot zero refuses to zero rather than zeroing wrongly.
+4. ~~A NaN altitude fires the auto-eject trigger~~ — **fixed in 071.** `apogeeUpdate()`
+   rejects a non-finite sample and holds state: it cannot fire on NaN, and it does not
+   reset a confirmation already in progress either.
 
-Read `devlog/2026-09-07-065-three-faults-in-one-bench-log.md` and `status.md` **Next 0–3**
-before touching the apogee or eject paths, and before telling anyone the system is ready
-to fly.
+**The auto-eject trigger now runs on its own clock** (071): it samples altitude every
+`AUTO_EJECT_SAMPLE_MS` (125) from the four poll loops while telemetry stays at 1 Hz.
+`AUTO_EJECT_CONFIRM_N` is still 3, but it counts **samples, not cycles** — so three
+confirmations cost ~250 ms rather than 2 s, and detection from apogee falls from ~3.4–4.4 s
+to ~1.7–1.8 s. **Any log or SD `#` line from before 2026-09-10 means the old thing by
+`cycles=`.** The rate is capped by the BME280's ~113 ms conversion, not by the CPU.
 
-**Auto-eject has still never been tested on hardware.** Sixth session running.
+⚠ **Nothing in 067, 069, 070 or 071 has been compiled or flashed.** Every ground station in
+every log to date is the `Sep  7 2026 19:48:44` build, which has none of it. The fixes are
+reviewed and modelled, not verified. **Auto-eject has still never fired on hardware.**
+
+Read `devlog/2026-09-07-065-three-faults-in-one-bench-log.md` and `066` before touching
+the apogee or eject paths, and before telling anyone the system is ready to fly. **066 also
+found two flight units transmitting on one channel** with no identifier in the packet to
+tell them apart — check that before trusting any field in a log.
+
+**Auto-eject has still never been tested on hardware.** Eighth session running — and it
+has now been substantially rewritten (071) without ever having fired once. That is the
+single largest untested thing in the project.
